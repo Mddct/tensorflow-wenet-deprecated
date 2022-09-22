@@ -130,7 +130,7 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         """
         q, k, v = self.forward_qkv(query, key, value, training)
 
-        if tf.shape(cache)[0] > 0:
+        if not training:
             key_cache, value_cache = tf.split(
                 cache, cache.size(-1) // 2, axis=-1)
             k = tf.concat([key_cache, k], axis=2)
