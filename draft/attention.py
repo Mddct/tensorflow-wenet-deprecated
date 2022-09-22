@@ -177,24 +177,33 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
             shape=input_shape[-1], dtype=tf.float32),
           trainable=True,
         )
-        
-    def rel_shift(self, x, zero_triu: bool = False):
-        """Compute relative positinal encoding.
-        Args:
-            x (tf.Tensor): Input tensor (batch, time, size).
-            zero_triu (bool): If true, return the lower triangular part of
-                the matrix.
-        Returns:
-            torch.Tensor: Output tensor.
-        """
+    def rel_shift(self, x):
+      x_size = tf.shape(x)
 
-        x_shape = tf.shape(x)
-        zero_pad = tf.zeros(
-          [x_shape[0], x_shape[1], x_shape[2], 1),
-          dtype=x.dtype) 
-        x_padded = tf.concat([zero_pad, x], axis=-1)
-        x_padded = tf.reshape(x_padded, [x_shape[0], x_shape[1], -1, x.size(2)])
-        x_padded = x_padded[:, :, 1:]
+      x = tf.pad(x, [[0, 0], [1, 0], [0, 0], [0, 0]])
+      x = tf.reshape(x, [x_size[1] + 1, x_size[0], x_size[2], x_size[3]])
+      x = tf.slice(x, [1, 0, 0, 0], [-1, -1, -1, -1])
+      x = tf.reshape(x, x_size)
+
+      return x
+   
+#     def rel_shift(self, x, zero_triu: bool = False):
+#         """Compute relative positinal encoding.
+#         Args:
+#             x (tf.Tensor): Input tensor (batch, time, size).
+#             zero_triu (bool): If true, return the lower triangular part of
+#                 the matrix.
+#         Returns:
+#             torch.Tensor: Output tensor.
+#         """
+
+#         x_shape = tf.shape(x)
+#         zero_pad = tf.zeros(
+#           [x_shape[0], x_shape[1], x_shape[2], 1),
+#           dtype=x.dtype) 
+#         x_padded = tf.concat([zero_pad, x], axis=-1)
+#         x_padded = tf.reshape(x_padded, [x_shape[0], x_shape[1], -1, x.size(2)])
+#         x_padded = x_padded[:, :, 1:]
 #         x_padded = x_padded.view(x.size()[0],
 #                                  x.size()[1],
 #                                  x.size(3) + 1, x.size(2))
