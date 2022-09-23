@@ -138,11 +138,11 @@ int fft(const int *bitrev, const float *sintbl, float *x, float *y, int n) {
 // https://github.com/kaldi-asr/kaldi/blob/master/src/feat/feature-fbank.cc
 class Fbank {
 public:
-  Fbank(int num_bins, int sample_rate, int frame_length, int frame_shift)
+  Fbank(int num_bins, int sample_rate, int frame_length, int frame_shift, float dither)
       : num_bins_(num_bins), sample_rate_(sample_rate),
         frame_length_(frame_length), frame_shift_(frame_shift), use_log_(true),
         remove_dc_offset_(true), generator_(0), distribution_(0, 1.0),
-        dither_(0.0) {
+        dither_(dither) {
     fft_points_ = UpperPowerOfTwo(frame_length_);
     // generate bit reversal table and trigonometric function table
     const int fft_points_4 = fft_points_ / 4;
@@ -328,44 +328,60 @@ using namespace tensorflow;
 
 REGISTER_OP("KaldiFbankOp")
     .Input("samples: float32")
+    .Attr("sample_rate: int")
+    .Attr("frame_length: int")
+    .Attr("frame_shift: int")
+    .Attr("bins: int")
+    .Attr("dither: float")
     .Output("fbank: float32")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext *c) {
-  // TODO: check shape later
-  return Status::OK();
+      // TODO: check shape later
+      return Status::OK();
     });
 
 class KaldiFbankOp : public OpKernel {
 public:
-  explicit KaldiFbankOp(OpKernelConstruction* context) : OpKernel(context) {}
+  explicit KaldiFbankOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
+    OP_REQUIRES_OK(ctx, ctx->GetAttr("sample_rate", &sample_rate_));
+    OP_REQUIRES_OK(ctx, ctx->GetAttr("frame_length", &frame_length_));
+    OP_REQUIRES_OK(ctx, ctx->GetAttr("frame_shift", &frame_shift_));
+    OP_REQUIRES_OK(ctx, ctx->GetAttr("bins", &bins_));
+    OP_REQUIRES_OK(ctx, ctx->GetAttr("dither", &dither_));
 
-  void Compute(OpKernelContext* context) override {
+    frame_length_ = sample_rate_ / 1000 * frame_length_;
+    frame_shift_ = sample_rate_ / 10000 * 10;
+  }
+
+  void Compute(OpKernelContext* ctx) override {
+
     // Grab the input tensor
-    const Tensor& input_tensor = context->input(0);
+    const Tensor& input_tensor = ctx->input(0);
     auto*  input_ptr = input_tensor.flat<float_t>().data();
     std::vector<float_t> samples(input_ptr, input_tensor.NumElements()+input_ptr);
 
-    //# TODO:
-    int sample_rate = 16000;
-    int bins = 80;
-    int frame_length = sample_rate / 1000 * 25; // frame length 25ms
-    int frame_shift = sample_rate / 1000 * 10;
-    wenet::Fbank fbank(bins, sample_rate, frame_length, frame_shift);
+    wenet::Fbank fbank(bins_, sample_rate_, frame_length_, frame_shift_, dither_);
 
     std::vector<std::vector<float>> feat;
     int num_frames = fbank.Compute(samples, &feat);
     // Create an output tensor
     Tensor *output_tensor = NULL;
     TensorShape output_shape;
-    OP_REQUIRES_OK(context, context->allocate_output(
-        0, TensorShape({num_frames, bins}), &output_tensor));
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(
+        0, TensorShape({num_frames, bins_}), &output_tensor));
     auto output_flat = output_tensor->flat<float_t>();
 
     // Set all but the first element of the output tensor to 0.
     int N = output_flat.size();
     for (int i = 0; i < N; i++) {
-      output_flat(i) = feat[int(i/bins)][i%bins];
+      output_flat(i) = feat[int(i/bins_)][i%bins_];
     }
   }
+ private:
+  int sample_rate_;
+  int frame_length_;
+  int frame_shift_;
+  int bins_; 
+  float dither_;
 };
 
 REGISTER_KERNEL_BUILDER(Name("KaldiFbankOp").Device(DEVICE_CPU),KaldiFbankOp);
