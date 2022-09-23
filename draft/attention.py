@@ -1,21 +1,33 @@
 """Multi-Head Attention layer definition."""
-### WIP
+## WIP
 import math
 from typing import Tuple
 
 import tensorflow as tf
 
 
-def XavierUniform(shape, dtype, scale=1.0):
-    method = 'xavier'
+def GetFanInFanOut(shape):
+
+    num_input_fmaps = shape[1]
+    num_output_fmaps = shape[0]
+    receptive_field_size = 1
+    receptive_field_size = 1
+    if len(shape) > 2:
+      receptive_field_size = tf.math.cumprod(shape[2:],)
+    fan_in = num_input_fmaps * receptive_field_size
+    fan_out = num_output_fmaps * receptive_field_size
+
+    return fan_in, fan_out
+
+def XavierUniform(shape, dtype, scale=1.0, method='xavier'):
     """Xavier initialization (x = sqrt(6. / (in + out)); scale*[-x, x])."""
     if not shape:
       raise ValueError('\'shape\' must not be \'None\' or 0 for XavierUniform')
-    # fan_in, fan_out = GetFanInFanOut(shape, combined_layers_dims)
+    fan_in, fan_out = GetFanInFanOut(shape)
     if method == 'xavier':
       limit = math.sqrt(6. / (fan_in + fan_out))
-    # elif method == 'geo_mean_xavier':
-    #   limit = math.sqrt(3. / math.sqrt(fan_in * fan_out))
+    elif method == 'geo_mean_xavier':
+      limit = math.sqrt(3. / math.sqrt(fan_in * fan_out))
     return scale * tf.random.uniform(shape, -limit, limit, dtype)
 
 class MultiHeadedAttention(tf.keras.layers.Layer):
@@ -60,7 +72,7 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         shapes = [n_batch, -1, self.h, self.d_k]
         q = tf.reshape(self.linear_q(query), shapes)
         k = tf.reshape(self.linear_k(key), shapes)
-        v = tf.reshape(self.linear_v(value), shape)
+        v = tf.reshape(self.linear_v(value), shapes)
         q = tf.transpose(q, [0,2,1,3])  # (batch, head, time1, d_k)
         k = tf.transpose(k, [0,2,1,3])  # (batch, head, time2, d_k)
         v = tf.transpose(v, [0,2,1,3])  # (batch, head, time2, d_k)
@@ -88,7 +100,7 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
           # inference graph need a mask for now
           scores = tf.where(mask, -float('inf'), scores)
           
-        attn = tf.nn.softmax(scores, dim=-1)  # (batch, head, time1, time2)
+        attn = tf.nn.softmax(scores, axis=-1)  # (batch, head, time1, time2)
         p_attn = self.dropout(attn, training)
         x = tf.matmul(p_attn, value)  # (batch, head, time1, d_k)
         x = tf.reshape(tf.transpose(x, [0,1,3,2]), 
@@ -127,7 +139,7 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
                 where `cache_t == chunk_size * num_decoding_left_chunks`
                 and `head * d_k == size`
         """
-        q, k, v = self.forward_qkv(query, key, value, training)
+        q, k, v = self.forward_qkv(query, key, value)
 
         if not training:
             key_cache, value_cache = tf.split(
@@ -138,7 +150,7 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         #   non-trivial to calculate `next_cache_start` here.
         new_cache = tf.concat((k, v), axis=-1)
 
-        scores = tf.matmul(q, tf.transpose(k, [0,1,3,2])) / tf.sqrt(self.d_k)
+        scores = tf.matmul(q, tf.transpose(k, [0,1,3,2])) / math.sqrt(self.d_k)
         return self.forward_attention(v, scores, mask), new_cache
 
 
@@ -169,18 +181,15 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
 
         
     def build(self, input_shape):
-        pos_bis_u_init_ = tf.random_normal_initializer()
         self.pos_bias_u = tf.Variable(
           initial_value=XavierUniform(
-                          shape=input_shape[-1],
+                          shape=[self.h, self.d_k],
                           dtype=tf.float32),
           trainable=True,
         )
-        pos_bis_v_init_ = tf.random_normal_initializer()
-        self.pos_bias_v = tf.Variable(pos_bis_v_init_, shape=[self.h, self.d_k])
         self.pos_bias_v = tf.Variable(
           initial_value=XavierUniform(
-            shape=input_shape[-1], dtype=tf.float32),
+            shape=[self.h, self.d_k], dtype=tf.float32),
           trainable=True,
         )
         
@@ -199,8 +208,8 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
 
     def call(self, query: tf.Tensor,
                 key: tf.Tensor, value: tf.Tensor,
+                pos_emb: tf.Tensor,
                 mask: tf.Tensor = None,
-                pos_emb: tf.Tensor = None,
                 cache: tf.Tensor = None,
                 training: bool = True,
                 ) -> Tuple[tf.Tensor, tf.Tensor]:
@@ -223,7 +232,7 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
                 and `head * d_k == size`
         """
         q, k, v = self.forward_qkv(query, key, value)
-        q = q.transpose(1, 2)  # (batch, time1, head, d_k)
+        q = tf.transpose(q, [0,2,1,3])  # (batch, time1, head, d_k)
 
         if not training:
             key_cache, value_cache = tf.split(
@@ -233,7 +242,7 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
        
         new_cache = tf.concat((k, v), axis=-1)
 
-        n_batch_pos = pos_emb.size(0)
+        n_batch_pos = tf.shape(pos_emb)[0]
         p = tf.reshape(self.linear_pos(pos_emb), [n_batch_pos, -1, self.h, self.d_k])
         p = tf.transpose(p, [0,2,1,3])  # (batch, head, time1, d_k)
 
