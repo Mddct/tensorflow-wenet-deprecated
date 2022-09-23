@@ -37,7 +37,7 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         self.linear_v =tf.keras.layers.Dense(n_feat)
         self.linear_out = tf.keras.layers.Dense(n_feat)
         self.dropout = tf.keras.layers.Dropout(p=dropout_rate)
-
+        
     def forward_qkv(
         self, query: tf.Tensor, key: tf.Tensor, value: tf.Tensor
     ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
@@ -95,7 +95,7 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
 
         return self.linear_out(x)  # (batch, time1, d_model)
 
-    def forward(self, query: tf.Tensor, key: tf.Tensor,
+    def call(self, query: tf.Tensor, key: tf.Tensor,
                 value: tf.Tensor,
                 mask: tf.Tensor = tf.ones((0, 0, 0), tf=tf.bool),
                 pos_emb: tf.Tensor = tf.empty(0),
@@ -193,7 +193,7 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
       return x
  
 
-    def forward(self, query: tf.Tensor,
+    def call(self, query: tf.Tensor,
                 key: tf.Tensor, value: tf.Tensor,
                 mask: tf.Tensor = tf.ones((0, 0, 0), dtype=tf.bool),
                 pos_emb: tf.Tensor = tf.empty(0),
