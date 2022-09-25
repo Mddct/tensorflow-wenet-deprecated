@@ -1,5 +1,5 @@
 import tensorflow as tf
-from wenet.ops import gen_x_op
+from wenet.tfaudio.ops import gen_x_op
 
 
 def fbank(waveform: tf.Tensor,
