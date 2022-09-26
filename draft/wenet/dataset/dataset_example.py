@@ -1,5 +1,5 @@
 import tensorflow as tf
-from wenet.tfaudio import fbank, resample
+from wenet.tfaudio import fbank, resample, speed
 
 
 def read_wav(path):
@@ -8,7 +8,7 @@ def read_wav(path):
 
 def decode(raw):
     wav, sr = tf.audio.decode_wav(raw)
-    return tf.squeeze(wav), sr
+    return tf.transpose(wav, [1, 0]), sr
 
 
 bins = 80
@@ -17,6 +17,7 @@ bins = 80
 def feature(audio):
 
     audio = audio * (1 << 15)
+    audio = tf.squeeze(audio)
     return fbank(audio,
                  num_mel_bins=bins,
                  frame_length=25,
@@ -25,15 +26,18 @@ def feature(audio):
                  sample_rate=16000)
 
 
-wavs = ["1.wav", "test.wav", "test.wav", "test.wav"]
+sample_rate = tf.constant(16000, dtype=tf.int32)
+wavs = ["1.wav", "test.wav", "test.wav", "test.wav"] * 10
 dataset = tf.data.Dataset.from_tensor_slices(wavs)
 dataset = dataset.map(read_wav)
 dataset = dataset.map(decode)
-dataset = dataset.map(lambda waveform, sr: resample.resample_fn(
-    waveform, sr, tf.constant(16000, dtype=tf.int32)))
-# dataset.filter .... resampel ... rir..... ....speed....
-dataset = dataset.map(feature)
-dataset = dataset.padded_batch(batch_size=2,
+dataset = dataset.map(
+    lambda waveform, sr: resample.resample_fn(waveform, sr, sample_rate))
+dataset = dataset.map(lambda waveform: speed.speed_fn(
+    waveform, sample_rate, tf.constant([0.9, 1., 1.1])))
+# # dataset.filter .... resampel ... rir..... ....speed....
+# dataset = dataset.map(feature)
+dataset = dataset.padded_batch(batch_size=4,
                                padded_shapes=[None, None],
                                padding_values=0.0,
                                drop_remainder=True)

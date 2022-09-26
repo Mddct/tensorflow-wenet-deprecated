@@ -127,31 +127,31 @@ def _apply_sinc_resample_kernel(
     new_shape = tf.shape(waveform)
     num_wavs, length = new_shape[0], new_shape[1]
     waveform = tf.pad(waveform, [[0, 0], [width, width + orig_freq]])
-    unfold = tf.image.extract_patches(images=tf.expand_dims(
-        tf.expand_dims(waveform, 2), 3),
-                                      sizes=[1, kernel.shape[-1], 1, 1],
-                                      strides=[1, orig_freq, 1, 1],
-                                      rates=[1, 1, 1, 1],
-                                      padding='VALID')
-    unfold = tf.expand_dims(unfold, 2)
-    # conv1d
-    resampled = tf.squeeze(tf.reduce_sum(unfold * kernel, axis=-1), -1)
-    # resampled = tf.nn.conv1d(
-    #     # tf.transpose(waveform[:, None], [0, 2, 1]),
-    #     tf.transpose(tf.expand_dims(waveform, 1), [0, 2, 1]),
-    #     # waveform[:, None],
-    #     # waveform[:, None],
-    #     tf.transpose(kernel, [2, 1, 0]),
-    #     stride=orig_freq.numpy(),
-    #     padding='VALID',
-    #     # data_format="NWC")
+    # unfold = tf.image.extract_patches(images=tf.expand_dims(
+    #     tf.expand_dims(waveform, 2), 3),
+    #                                   sizes=[1, kernel.shape[-1], 1, 1],
+    #                                   strides=[1, orig_freq, 1, 1],
+    #                                   rates=[1, 1, 1, 1],
+    #                                   padding='VALID')
+    # unfold = tf.expand_dims(unfold, 2)
+    # # conv1d
+    # resampled = tf.squeeze(tf.reduce_sum(unfold * kernel, axis=-1), -1)
+    resampled = tf.nn.conv1d(
+        # tf.transpose(waveform[:, None], [0, 2, 1]),
+        tf.transpose(tf.expand_dims(waveform, 1), [0, 2, 1]),
+        # waveform[:, None],
+        # waveform[:, None],
+        tf.transpose(kernel, [2, 1, 0]),
+        stride=orig_freq.numpy(),
+        padding='VALID',
+        data_format="NWC")
 
     resampled = tf.reshape(resampled, [num_wavs, -1])
     target_length = int(math.ceil(new_freq * length / orig_freq))
     resampled = resampled[..., :target_length]
 
     # unpack batch
-    n_shape = tf.concat([shape[:-1], tf.shape(resampled[-1:])], axis=0)
+    n_shape = tf.concat([shape[:-1], tf.shape(resampled)[-1:]], axis=0)
     resampled = tf.reshape(resampled, n_shape)
     # resampled = tf.reshape(resampled, [shape[:-1], tf.shape(resampled)[-1:]])
     return resampled
@@ -211,12 +211,13 @@ def eager_resample(
     return resampled
 
 
-# a = tf.ones([1, 200], dtype=tf.float32)
-
+# a = tf.ones([1,200], dtype=tf.float32)
 
 # print(
 #     eager_resample(a, tf.constant(8000, dtype=tf.int32),
 #                    tf.constant(16000, dtype=tf.int32)))
+
+
 def resample_fn(waveform: tf.Tensor, ori_freq: tf.Tensor, new_freq: tf.Tensor):
     return tf.py_function(eager_resample, [waveform, ori_freq, new_freq],
                           waveform.dtype)
