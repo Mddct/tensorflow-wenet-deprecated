@@ -1,9 +1,11 @@
 import random
 
 import tensorflow as tf
+from wenet.tfaudio.ops import gen_x_op
 from wenet.tfaudio.resample import eager_resample
 
 
+# channel first
 def eager_speed(waveform: tf.Tensor, sr: tf.Tensor,
                 speeds: tf.Tensor) -> tf.Tensor:
     """"Why use speed option instead of tempo -s in SoX for speed perturbation"
@@ -11,7 +13,11 @@ def eager_speed(waveform: tf.Tensor, sr: tf.Tensor,
 
     """
 
-    # index = tf.squeeze(tf.random.categorical(tf.expand_dims(speeds, 0), 1),
+    # equal random.choince([0.9, 1.0, 1.1])
+    distributed = tf.ones([1, tf.shape(speeds)[0]])
+    index = tf.random.categorical(distributed, 1)[0][0]
+    speed = speeds[index]
+
     # [1] )
     # speed = tf.gather(speeds, index)[0]
     # speed = random.choice(speeds.numpy())
@@ -27,5 +33,27 @@ def eager_speed(waveform: tf.Tensor, sr: tf.Tensor,
     return speed_waveform
 
 
-def speed_fn(waveform: tf.Tensor, sr: tf.Tensor, speeds: tf.Tensor):
+def speed_fn_v1(waveform: tf.Tensor, sr: tf.Tensor, speeds: tf.Tensor):
     return tf.py_function(eager_speed, [waveform, sr, speeds], waveform.dtype)
+
+
+# channel last
+@tf.function
+def speed_fn_v2(waveform: tf.Tensor, sr: tf.Tensor,
+                speeds: tf.Tensor) -> tf.Tensor:
+
+    distributed = tf.ones([1, tf.shape(speeds)[0]])
+    index = tf.random.categorical(distributed, 1)[0][0]
+    speed = tf.gather(speeds, index)
+    # print(speed)
+    if speed == 1.0:
+        return waveform
+    resample_rate = tf.cast(tf.cast(sr, dtype=tf.float32) * speed,
+                            dtype=tf.int32)
+    return tf.squeeze(
+        gen_x_op.speed_op(waveform, sr, resample_rate, lowpass_filter_width=5))
+
+
+speed_fn = speed_fn_v2
+
+# print(speed_fn(tf.ones(100, 1), sr=16000, speeds=[0.9, 1.0, 1.1]))
