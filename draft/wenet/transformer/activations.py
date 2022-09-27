@@ -1,47 +1,49 @@
-import tensorflow as tf
 import math
+
+import tensorflow as tf
 
 # Supported activation functions.
 _ACTIVATIONS = {
     'RELU':
-        tf.nn.relu,
+    tf.nn.relu,
     'RELU6':
-        tf.nn.relu6,
+    tf.nn.relu6,
     'LEAKY_RELU':
-        tf.nn.leaky_relu,
+    tf.nn.leaky_relu,
     'SIGMOID':
-        tf.sigmoid,
+    tf.sigmoid,
     'TANH':
-        tf.tanh,
+    tf.tanh,
     'GELU':
-        tf.nn.gelu,
+    tf.nn.gelu,
     'GELU_APPROXIMATE':
-        lambda x: tf.nn.gelu(x, approximate=True),
+    lambda x: tf.nn.gelu(x, approximate=True),
     'GELU_RAW':
-        lambda x: 0.5 * x * (  # pylint: disable=g-long-lambda
-            1 + tf.tanh(tf.math.sqrt(2 / math.pi) * (x + 0.044715 * tf.pow(x, 3)))),
+    lambda x: 0.5 * x * (  # pylint: disable=g-long-lambda
+        1 + tf.tanh(tf.math.sqrt(2 / math.pi) *
+                    (x + 0.044715 * tf.pow(x, 3)))),
     'SWISH':
-        tf.nn.swish,
+    tf.nn.swish,
     'SOFTPLUS':
-        tf.nn.softplus,
+    tf.nn.softplus,
     # Squared ReLU from the Primer paper: https://arxiv.org/abs/2109.08668
     'SQUARED_RELU':
-        lambda x: tf.math.square(tf.nn.relu(x)),
+    lambda x: tf.math.square(tf.nn.relu(x)),
     'SILU':
-        tf.nn.silu,
+    tf.nn.silu,
     # GLU Variants: https://arxiv.org/abs/2002.05202
     'GLU':
-        lambda x: GLUVariants(x, 'SIGMOID'),
+    lambda x: GLUVariants(x, 'SIGMOID'),
     'BILINEAR_GLU':
-        lambda x: GLUVariants(x, 'NONE'),
+    lambda x: GLUVariants(x, 'NONE'),
     'RELU_GLU':
-        lambda x: GLUVariants(x, 'RELU'),
+    lambda x: GLUVariants(x, 'RELU'),
     'GELU_GLU':
-        lambda x: GLUVariants(x, 'GELU'),
+    lambda x: GLUVariants(x, 'GELU'),
     'SWISH_GLU':
-        lambda x: GLUVariants(x, 'SWISH'),
+    lambda x: GLUVariants(x, 'SWISH'),
     'NONE':
-        tf.identity,
+    tf.identity,
 }
 
 _ACTIVATIONS_FLOPS = {
@@ -75,56 +77,55 @@ _ACTIVATIONS_FLOPS = {
 
 
 def GetFn(activation_name):
-  """Returns function corresponding to the activation name."""
-  return _ACTIVATIONS[activation_name]
+    """Returns function corresponding to the activation name."""
+    return _ACTIVATIONS[activation_name]
 
 
 def GetFlops(activation_name):
-  """Returns FLOPS corresponding to the activation name."""
-  return _ACTIVATIONS_FLOPS[activation_name]
+    """Returns FLOPS corresponding to the activation name."""
+    return _ACTIVATIONS_FLOPS[activation_name]
 
 
 def IsSupported(activation_name):
-  """Checks if the activation is supported."""
-  return activation_name in _ACTIVATIONS
+    """Checks if the activation is supported."""
+    return activation_name in _ACTIVATIONS
 
 
 def DimMultiplier(activation_name):
-  """Returns dimension multiplier for the activation."""
-  assert IsSupported(activation_name)
-  if activation_name.endswith('GLU'):
-    return 2
-  return 1
+    """Returns dimension multiplier for the activation."""
+    assert IsSupported(activation_name)
+    if activation_name.endswith('GLU'):
+        return 2
+    return 1
 
 
 def GLUVariants(x, activation_name):
-  """Returns function corresponding to GLU variants."""
-  x1, x2 = tf.split(x, 2, axis=-1)
-  return x1 * _ACTIVATIONS[activation_name](x2)
+    """Returns function corresponding to GLU variants."""
+    x1, x2 = tf.split(x, 2, axis=-1)
+    return x1 * _ACTIVATIONS[activation_name](x2)
 
 
 class ActivationLayer(tf.keras.layers.Layer):
-  """Activation layer."""
+    """Activation layer."""
 
     def __init__(
         self,
-        name,
+        name: str,
         **kwargs,
     ):
-        super(ActivationLayer, self).__init__(name=name, **kwargs)
-        self.name = name
+        super(ActivationLayer, self).__init__(name=name.upper(), **kwargs)
         self.activation = None
-        if IsSupported(name):
-          self.activation = GetFn(name)
-        
+        assert IsSupported(self.name)
+        self.activation = GetFn(self.name)
+
     def call(
         self,
         inputs,
     ):
         if self.activation is None:
-          return inputs
+            return inputs
         return self.activation(inputs)
 
     def get_config(self):
         conf = super(ActivationLayer, self).get_config()
-        conf.update({"name": self.name})
+        conf.update({"name": self.name_})
