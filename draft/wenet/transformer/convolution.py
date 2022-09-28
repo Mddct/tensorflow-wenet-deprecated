@@ -27,7 +27,7 @@ class ConvolutionModule(tf.keras.layers.Layer):
             kernel_size (int): Kernel size of conv layers.
             causal (int): Whether use causal convolution or not
         """
-        super(ConvolutionModule, self).__init__()
+        super(ConvolutionModule, self).__init__(name=name)
 
         self.pointwise_conv1 = tf.keras.layers.Conv1D(
             2 * channels,
