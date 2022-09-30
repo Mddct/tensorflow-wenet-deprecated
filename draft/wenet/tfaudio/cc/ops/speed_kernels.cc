@@ -1,4 +1,4 @@
-#include "resample.h"
+#include "wenet/tfaudio/cc/ops/resample.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/register_types.h"
 #include "tensorflow/core/framework/tensor.h"

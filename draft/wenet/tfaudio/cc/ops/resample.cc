@@ -1,15 +1,15 @@
-#include <algorithm>
-#include <stdlib.h>
 #include "resample.h"
+#include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <vector>
 #include <numeric>
+#include <stdlib.h>
+#include <vector>
 
 #define M_2PI 6.283185307179586476925286766559005
 
-std::vector<float> sub_vector(const std::vector<float> &input,
-                                  int begin, int length) {
+std::vector<float> sub_vector(const std::vector<float> &input, int begin,
+                              int length) {
   std::vector<float> res(length);
   for (int i = 0; i < length; i++) {
     res[i] = input[i + begin];
@@ -28,7 +28,6 @@ sub_matrix(const std::vector<std::vector<float>> &input, int row_begin,
   }
   return res;
 }
-
 
 /*return gcd */
 int Gcd(int m, int n) {
@@ -49,9 +48,8 @@ int Gcd(int m, int n) {
   }
 }
 std::vector<float> add_mat_vec(float alpha,
-                                   const std::vector<std::vector<float>> &M,
-                                   const std::vector<float> &v,
-                                   float beta) {
+                               const std::vector<std::vector<float>> &M,
+                               const std::vector<float> &v, float beta) {
   int row, col, length;
   row = M.size();
   col = M[0].size();
@@ -67,19 +65,13 @@ std::vector<float> add_mat_vec(float alpha,
   return res;
 }
 
-LinearResample::LinearResample(int samp_rate_in_hz,
-                               int samp_rate_out_hz,
-                               float filter_cutoff_hz,
-                               int num_zeros):
-    samp_rate_in_(samp_rate_in_hz),
-    samp_rate_out_(samp_rate_out_hz),
-    filter_cutoff_(filter_cutoff_hz),
-    num_zeros_(num_zeros) {
-  assert(samp_rate_in_hz > 0.0 &&
-               samp_rate_out_hz > 0.0 &&
-               filter_cutoff_hz > 0.0 &&
-               filter_cutoff_hz*2 <= samp_rate_out_hz &&
-               num_zeros > 0);
+LinearResample::LinearResample(int samp_rate_in_hz, int samp_rate_out_hz,
+                               float filter_cutoff_hz, int num_zeros)
+    : samp_rate_in_(samp_rate_in_hz), samp_rate_out_(samp_rate_out_hz),
+      filter_cutoff_(filter_cutoff_hz), num_zeros_(num_zeros) {
+  assert(samp_rate_in_hz > 0.0 && samp_rate_out_hz > 0.0 &&
+         filter_cutoff_hz > 0.0 && filter_cutoff_hz * 2 <= samp_rate_out_hz &&
+         num_zeros > 0);
 
   // base_freq is the frequency of the repeating unit, which is the gcd
   // of the input frequencies.
@@ -97,14 +89,14 @@ int Lcm(int m, int n) {
   return gcd * (m / gcd) * (n / gcd);
 }
 
-int LinearResample::GetNumOutputSamples(int input_num_samp,
-                                          bool flush) const {
+int LinearResample::GetNumOutputSamples(int input_num_samp, bool flush) const {
   int tick_freq = Lcm(samp_rate_in_, samp_rate_out_);
   int ticks_per_input_period = tick_freq / samp_rate_in_;
 
   // work out the number of ticks in the time interval
   // [ 0, input_num_samp/samp_rate_in_ ).
-  long long interval_length_in_ticks = (long long)input_num_samp * (long long)ticks_per_input_period;
+  long long interval_length_in_ticks =
+      (long long)input_num_samp * (long long)ticks_per_input_period;
   if (!flush) {
     float window_width = num_zeros_ / (2.0 * filter_cutoff_);
     int window_width_ticks = floor(window_width * tick_freq);
@@ -137,29 +129,25 @@ void LinearResample::SetIndexesAndWeights() {
     for (int j = 0; j < num_indices; j++) {
       int input_index = min_input_index + j;
       double input_t = input_index / static_cast<double>(samp_rate_in_),
-          delta_t = input_t - output_t;
+             delta_t = input_t - output_t;
       // sign of delta_t doesn't matter.
       weights_[i][j] = FilterFunc(delta_t) / samp_rate_in_;
     }
   }
 }
 
-
 // inline
-void LinearResample::GetIndexes(int samp_out,
-                                int *first_samp_in,
+void LinearResample::GetIndexes(int samp_out, int *first_samp_in,
                                 int *samp_out_wrapped) const {
   int unit_index = samp_out / output_samples_in_unit_;
   // samp_out_wrapped is equal to samp_out % output_samples_in_unit_
-  *samp_out_wrapped = static_cast<int>(samp_out -
-                                         unit_index * output_samples_in_unit_);
-  *first_samp_in = first_index_[*samp_out_wrapped] +
-      unit_index * input_samples_in_unit_;
+  *samp_out_wrapped =
+      static_cast<int>(samp_out - unit_index * output_samples_in_unit_);
+  *first_samp_in =
+      first_index_[*samp_out_wrapped] + unit_index * input_samples_in_unit_;
 }
 
-
-void LinearResample::Resample(const std::vector<float> &input,
-                              bool flush,
+void LinearResample::Resample(const std::vector<float> &input, bool flush,
                               std::vector<float> *output) {
   int input_dim = input.size();
   int tot_input_samp = input_sample_offset_ + input_dim,
@@ -171,33 +159,35 @@ void LinearResample::Resample(const std::vector<float> &input,
 
   // samp_out is the index into the total output signal, not just the part
   // of it we are producing here.
-  for (int samp_out = output_sample_offset_;
-       samp_out < tot_output_samp;
+  for (int samp_out = output_sample_offset_; samp_out < tot_output_samp;
        samp_out++) {
     int first_samp_in;
     int samp_out_wrapped;
     GetIndexes(samp_out, &first_samp_in, &samp_out_wrapped);
     const std::vector<float> &weights = weights_[samp_out_wrapped];
-    int first_input_index = static_cast<int>(first_samp_in -
-                                                 input_sample_offset_);
+    int first_input_index =
+        static_cast<int>(first_samp_in - input_sample_offset_);
     float this_output;
     if (first_input_index >= 0 &&
         first_input_index + int(weights.size()) <= input_dim) {
-      std::vector<float> input_part(input.begin()+first_input_index, input.begin()+first_input_index+int(weights.size()));
-      this_output = std::inner_product(
-          input_part.begin(), input_part.end(), weights.begin(),0);
-    } else {  // Handle edge cases.
+      std::vector<float> input_part(input.begin() + first_input_index,
+                                    input.begin() + first_input_index +
+                                        int(weights.size()));
+      this_output = std::inner_product(input_part.begin(), input_part.end(),
+                                       weights.begin(), 0);
+    } else { // Handle edge cases.
       this_output = 0.0;
       for (int i = 0; i < weights.size(); i++) {
         float weight = weights[i];
         int input_index = first_input_index + i;
-        if ((input_index < 0) && (int(input_remainder_.size()) + input_index >= 0)) {
-          this_output += weight * input_remainder_[int(input_remainder_.size()) + input_index];
-        }
-        else if (input_index >= 0 && input_index < input_dim) {
+        if ((input_index < 0) &&
+            (int(input_remainder_.size()) + input_index >= 0)) {
+          this_output +=
+              weight *
+              input_remainder_[int(input_remainder_.size()) + input_index];
+        } else if (input_index >= 0 && input_index < input_dim) {
           this_output += weight * input[input_index];
-        }
-        else if (input_index >= input_dim) {
+        } else if (input_index >= input_dim) {
           assert(flush);
         }
       }
@@ -207,7 +197,7 @@ void LinearResample::Resample(const std::vector<float> &input,
   }
 
   if (flush) {
-    Reset();  // Reset the internal state.
+    Reset(); // Reset the internal state.
   } else {
     SetRemainder(input);
     input_sample_offset_ = tot_input_samp;
@@ -217,10 +207,9 @@ void LinearResample::Resample(const std::vector<float> &input,
 
 void LinearResample::SetRemainder(const std::vector<float> &input) {
   std::vector<float> old_remainder(input_remainder_);
-  int max_remainder_needed = ceil(samp_rate_in_ * num_zeros_ /
-                                    filter_cutoff_);
+  int max_remainder_needed = ceil(samp_rate_in_ * num_zeros_ / filter_cutoff_);
   input_remainder_.resize(max_remainder_needed);
-  for (int index = - input_remainder_.size(); index < 0; index++) {
+  for (int index = -input_remainder_.size(); index < 0; index++) {
     int input_index = index + input.size();
     if (input_index >= 0)
       input_remainder_[index + input_remainder_.size()] = input[input_index];
@@ -238,40 +227,36 @@ void LinearResample::Reset() {
 }
 
 float LinearResample::FilterFunc(float t) const {
-  float window,  // raised-cosine (Hanning) window of width
-                  // num_zeros_/2*filter_cutoff_
-      filter;  // sinc filter function
+  float window, // raised-cosine (Hanning) window of width
+                // num_zeros_/2*filter_cutoff_
+      filter;   // sinc filter function
   if (fabs(t) < num_zeros_ / (2.0 * filter_cutoff_))
     window = 0.5 * (1 + cos(M_2PI * filter_cutoff_ / num_zeros_ * t));
   else
-    window = 0.0;  // outside support of window function
+    window = 0.0; // outside support of window function
   if (t != 0)
     filter = sin(M_2PI * filter_cutoff_ * t) / (M_PI * t);
   else
-    filter = 2 * filter_cutoff_;  // limit of the function at t = 0
+    filter = 2 * filter_cutoff_; // limit of the function at t = 0
   return filter * window;
 }
 
-
-ArbitraryResample::ArbitraryResample(
-    int num_samples_in, float samp_rate_in,
-    float filter_cutoff, const std::vector<float> &sample_points,
-    int num_zeros):
-    num_samples_in_(num_samples_in),
-    samp_rate_in_(samp_rate_in),
-    filter_cutoff_(filter_cutoff),
-    num_zeros_(num_zeros) {
-  assert(num_samples_in > 0 && samp_rate_in > 0.0 &&
-               filter_cutoff > 0.0 &&
-               filter_cutoff * 2.0 <= samp_rate_in
-               && num_zeros > 0);
+ArbitraryResample::ArbitraryResample(int num_samples_in, float samp_rate_in,
+                                     float filter_cutoff,
+                                     const std::vector<float> &sample_points,
+                                     int num_zeros)
+    : num_samples_in_(num_samples_in), samp_rate_in_(samp_rate_in),
+      filter_cutoff_(filter_cutoff), num_zeros_(num_zeros) {
+  assert(num_samples_in > 0 && samp_rate_in > 0.0 && filter_cutoff > 0.0 &&
+         filter_cutoff * 2.0 <= samp_rate_in && num_zeros > 0);
   // set up weights_ and indices_.  Please try to keep all functions short and
   SetIndexes(sample_points);
   SetWeights(sample_points);
 }
 
-void ArbitraryResample::Resample(const std::vector<std::vector<float> > &input,
-                                 std::vector<std::vector<float> > *output) const {
+void ArbitraryResample::Resample(
+    const std::vector<std::vector<float>> &input,
+    std::vector<std::vector<float>> *output) const {
   // each row of "input" corresponds to the data to resample;
   // the corresponding row of "output" is the resampled data.
 
@@ -279,30 +264,26 @@ void ArbitraryResample::Resample(const std::vector<std::vector<float> > &input,
   int col_num = (*output)[0].size();
   for (int i = 0; i < NumSamplesOut(); i++) {
     std::vector<std::vector<float>> input_part =
-        sub_matrix(input, 0, input.size(),
-                   first_index_[i],
-                   weights_[i].size());
+        sub_matrix(input, 0, input.size(), first_index_[i], weights_[i].size());
     const std::vector<float> &weight_vec(weights_[i]);
     output_col = add_mat_vec(1.0, input_part, weight_vec, 0.0);
-    for (int j = 0; j < output_col.size(); j++){
+    for (int j = 0; j < output_col.size(); j++) {
       (*output)[j][i] = output_col[j];
     }
   }
 }
 
-
 void ArbitraryResample::Resample(const std::vector<float> &input,
                                  std::vector<float> *output) const {
-  assert(input.size() == num_samples_in_ &&
-               output->size() == weights_.size());
+  assert(input.size() == num_samples_in_ && output->size() == weights_.size());
 
   int output_dim = output->size();
   for (int i = 0; i < output_dim; i++) {
-    std::vector<float> input_part(
-        input.begin()+first_index_[i],
-        input.begin()+first_index_[i]+weights_[i].size());
-    (*output)[i]= std::inner_product(input_part.begin(), input_part.end(),
-                                    weights_[i].begin(), 0);
+    std::vector<float> input_part(input.begin() + first_index_[i],
+                                  input.begin() + first_index_[i] +
+                                      weights_[i].size());
+    (*output)[i] = std::inner_product(input_part.begin(), input_part.end(),
+                                      weights_[i].begin(), 0);
   }
 }
 
@@ -311,10 +292,10 @@ void ArbitraryResample::SetIndexes(const std::vector<float> &sample_points) {
   first_index_.resize(num_samples);
   weights_.resize(num_samples);
   float filter_width = num_zeros_ / (2.0 * filter_cutoff_);
-  for (int  i = 0; i < num_samples; i++) {
+  for (int i = 0; i < num_samples; i++) {
     // the t values are in seconds.
-    float t = sample_points[i],
-        t_min = t - filter_width, t_max = t + filter_width;
+    float t = sample_points[i], t_min = t - filter_width,
+          t_max = t + filter_width;
     int index_min = ceil(samp_rate_in_ * t_min),
         index_max = floor(samp_rate_in_ * t_max);
     // the ceil on index min and the floor on index_max are because there
@@ -331,9 +312,8 @@ void ArbitraryResample::SetIndexes(const std::vector<float> &sample_points) {
 void ArbitraryResample::SetWeights(const std::vector<float> &sample_points) {
   int num_samples_out = NumSamplesOut();
   for (int i = 0; i < num_samples_out; i++) {
-    for (int j = 0 ; j < weights_[i].size(); j++) {
-      float delta_t = sample_points[i] -
-          (first_index_[i] + j) / samp_rate_in_;
+    for (int j = 0; j < weights_[i].size(); j++) {
+      float delta_t = sample_points[i] - (first_index_[i] + j) / samp_rate_in_;
       // Include at this point the factor of 1.0 / samp_rate_in_ which
       // appears in the math.
       weights_[i][j] = FilterFunc(delta_t) / samp_rate_in_;
@@ -342,17 +322,17 @@ void ArbitraryResample::SetWeights(const std::vector<float> &sample_points) {
 }
 
 float ArbitraryResample::FilterFunc(float t) const {
-  float window,  // raised-cosine (Hanning) window of width
-                  // num_zeros_/2*filter_cutoff_
-      filter;  // sinc filter function
+  float window, // raised-cosine (Hanning) window of width
+                // num_zeros_/2*filter_cutoff_
+      filter;   // sinc filter function
   if (fabs(t) < num_zeros_ / (2.0 * filter_cutoff_))
     window = 0.5 * (1 + cos(M_2PI * filter_cutoff_ / num_zeros_ * t));
   else
-    window = 0.0;  // outside support of window function
+    window = 0.0; // outside support of window function
   if (t != 0.0)
     filter = sin(M_2PI * filter_cutoff_ * t) / (M_PI * t);
   else
-    filter = 2.0 * filter_cutoff_;  // limit of the function at zero.
+    filter = 2.0 * filter_cutoff_; // limit of the function at zero.
   return filter * window;
 }
 
@@ -361,7 +341,7 @@ void ResampleWaveform(float orig_freq, const std::vector<float> &wave,
   float min_freq = std::min(orig_freq, new_freq);
   float lowpass_cutoff = 0.99 * 0.5 * min_freq;
   int lowpass_filter_width = 6;
-  LinearResample resampler(orig_freq, new_freq,
-                           lowpass_cutoff, lowpass_filter_width);
+  LinearResample resampler(orig_freq, new_freq, lowpass_cutoff,
+                           lowpass_filter_width);
   resampler.Resample(wave, true, new_wave);
 }

@@ -1,4 +1,4 @@
-#include "kaldi_fbank_kernels.h"
+#include "wenet/tfaudio/cc/ops/kaldi_fbank_kernels.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/shape_inference.h"

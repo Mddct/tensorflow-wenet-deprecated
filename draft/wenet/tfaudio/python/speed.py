@@ -1,8 +1,6 @@
-import random
-
 import tensorflow as tf
-from wenet.tfaudio.ops import gen_x_op
-from wenet.tfaudio.resample import eager_resample
+from wenet.tfaudio.cc.ops import gen_x_op
+from wenet.tfaudio.python.resample import eager_resample
 
 
 # channel first
@@ -54,6 +52,6 @@ def speed_fn_v2(waveform: tf.Tensor, sr: tf.Tensor,
         gen_x_op.speed_op(waveform, sr, resample_rate, lowpass_filter_width=5))
 
 
-speed_fn = speed_fn_v2
+speed = speed_fn_v2
 
 # print(speed_fn(tf.ones(100, 1), sr=16000, speeds=[0.9, 1.0, 1.1]))

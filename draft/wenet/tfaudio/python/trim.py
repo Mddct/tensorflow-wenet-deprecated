@@ -1,8 +1,5 @@
 import tensorflow as tf
-from keras.api._v2.keras import backend
-
-# from . import utils
-import utils
+from wenet.tfaudio.python import utils
 
 
 def _signal_to_frame_nonsilent(
