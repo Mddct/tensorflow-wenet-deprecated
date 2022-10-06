@@ -2,6 +2,7 @@ import math
 from typing import Optional
 
 import tensorflow as tf
+import tensorflow_io as tfio
 
 
 def _get_sinc_resample_kernel(
@@ -88,17 +89,17 @@ def _get_sinc_resample_kernel(
         # kaiser_window
         if beta is None:
             beta = 14.769656459379492
-        beta_tensor = tf.constant(beta, dtype=float)
-        window = tf.math.bessel_i0(beta_tensor * tf.math.sqrt(1 - (
-            t / lowpass_filter_width)**2)) / tf.math.bessel_i0(beta_tensor)
+            beta_tensor = tf.constant(beta, dtype=float)
+            window = tf.math.bessel_i0(beta_tensor * tf.math.sqrt(1 - (
+                t / lowpass_filter_width)**2)) / tf.math.bessel_i0(beta_tensor)
 
     t *= math.pi
 
     scale = base_freq / orig_freq
     if dtype is None:
         dtype = tf.float32
-    kernels = tf.where(t == 0, 1.0, tf.math.sin(t) / t)
-    kernels *= window * tf.cast(scale, dtype=tf.float32)
+        kernels = tf.where(t == 0, 1.0, tf.math.sin(t) / t)
+        kernels *= window * tf.cast(scale, dtype=tf.float32)
 
     width = tf.cast(width, dtype=tf.int32)
     return kernels, width
@@ -218,6 +219,16 @@ def eager_resample(
 #                    tf.constant(16000, dtype=tf.int32)))
 
 
-def resample_fn(waveform: tf.Tensor, ori_freq: tf.Tensor, new_freq: tf.Tensor):
+def resample_fn_v2(waveform: tf.Tensor, ori_freq: tf.Tensor,
+                   new_freq: tf.Tensor):
     return tf.py_function(eager_resample, [waveform, ori_freq, new_freq],
                           waveform.dtype)
+
+
+def resample_v3(waveform: tf.Tensor, ori_freq: tf.Tensor,
+                new_freq: tf.Tensor) -> tf.Tensor:
+    return tfio.audio.resample(waveform, tf.cast(ori_freq, dtype=tf.int64),
+                               tf.cast(new_freq, dtype=tf.int64))
+
+
+resample = resample_v3
