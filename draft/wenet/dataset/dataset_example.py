@@ -1,5 +1,5 @@
 import tensorflow as tf
-from wenet.tfaudio import fbank, resample, speed
+from wenet.tfaudio import fbank, speed
 
 
 def read_wav(path):
@@ -37,8 +37,7 @@ dataset = dataset.map(read_wav, num_parallel_calls=tf.data.AUTOTUNE)
 # TODO: resample
 # == torchaudio effects speed
 dataset = dataset.map(
-    lambda waveform, sr: speed.speed_fn(waveform, sr,
-                                        tf.constant([0.9, 1., 1.1])),
+    lambda waveform, sr: speed(waveform, sr, tf.constant([0.9, 1., 1.1])),
     tf.data.AUTOTUNE)
 # == torchadio fbank
 dataset = dataset.map(feature)
