@@ -56,8 +56,10 @@ class PositionalEncoding(tf.keras.layers.Layer):
         # self.pe = tf.squeeze(self.pe, axis=0)
         self.pe = tf.expand_dims(positional_encoding(max_len, d_model), axis=0)
 
-    def call(self, x: tf.Tensor,
-             offset: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+    def call(self,
+             x: tf.Tensor,
+             offset: tf.Tensor,
+             training: bool = True) -> Tuple[tf.Tensor, tf.Tensor]:
         """Add positional encoding.
         Args:
             x (tf.Tensor): Input. Its shape is (batch, time, ...)
@@ -67,9 +69,14 @@ class PositionalEncoding(tf.keras.layers.Layer):
             tf.Tensor: for compatibility to RelPositionalEncoding
         """
 
-        pos_emb = self.position_encoding(offset, tf.shape(x)[1], False)
+        pos_emb = self.position_encoding(offset,
+                                         tf.shape(x)[1],
+                                         False,
+                                         training=training)
         x = x * self.xscale + pos_emb
-        return self.dropout(x), self.dropout(pos_emb)
+        return self.dropout(x,
+                            training=training), self.dropout(pos_emb,
+                                                             training=training)
 
     def position_encoding(self,
                           offset: tf.Tensor,
@@ -83,7 +90,7 @@ class PositionalEncoding(tf.keras.layers.Layer):
         increasing input size in a streaming scenario, so the dropout will
         be applied several times.
         Args:
-            offset (int or tf.Tensor): start offset
+            offset (tf.Tensor): start offset
             size (tf.Tensor): required size of position encoding
         Returns:
             tf.Tensor: Corresponding encoding
@@ -132,7 +139,10 @@ class RelPositionalEncoding(PositionalEncoding):
             tf..Tensor: Positional embedding tensor (1, time, `*`).
         """
         x = x * self.xscale
-        pos_emb = self.position_encoding(offset, tf.shape(x)[1], False)
+        pos_emb = self.position_encoding(offset,
+                                         tf.shape(x)[1],
+                                         False,
+                                         training=training)
         return self.dropout(x,
                             training=training), self.dropout(pos_emb,
                                                              training=training)
