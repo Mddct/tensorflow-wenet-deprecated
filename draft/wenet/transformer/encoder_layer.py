@@ -68,11 +68,11 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
     def call(
         self,
         x: tf.Tensor,
-        mask: tf.Tensor,
-        pos_emb: tf.Tensor,
-        mask_pad: tf.Tensor,
-        att_cache: tf.Tensor,
-        cnn_cache: tf.Tensor,
+        mask: Optional[tf.Tensor] = None,
+        pos_emb: Optional[tf.Tensor] = None,
+        mask_pad: Optional[tf.Tensor] = None,
+        att_cache: Optional[tf.Tensor] = None,
+        cnn_cache: Optional[tf.Tensor] = None,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
         """Compute encoded features.
@@ -216,9 +216,9 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
     def call(
         self,
         x: tf.Tensor,
-        mask: tf.Tensor,
-        pos_emb: tf.Tensor,
-        mask_pad: tf.Tensor = tf.ones((0, 0, 0), dtype=tf.bool),
+        mask: Optional[tf.Tensor] = None,
+        pos_emb: Optional[tf.Tensor] = None,
+        mask_pad: Optional[tf.Tensor] = None,
         att_cache: Optional[tf.Tensor] = None,
         cnn_cache: Optional[tf.Tensor] = None,
         training: bool = True,

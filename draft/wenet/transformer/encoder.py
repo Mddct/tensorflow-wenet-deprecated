@@ -184,7 +184,6 @@ class BaseEncoder(tf.keras.layers.Layer):
         required_cache_size: tf.Tensor,
         att_cache: tf.Tensor,
         cnn_cache: tf.Tensor,
-        att_mask: tf.Tensor,
     ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         """ Forward just one chunk
         Args:
@@ -238,7 +237,8 @@ class BaseEncoder(tf.keras.layers.Layer):
         for i, layer in enumerate(self.encoders):
             xs, _, new_att_cache, new_cnn_cache = layer(
                 xs,
-                att_mask,
+                # we don't need a mask for self attention
+                None,
                 pos_emb,
                 att_cache=att_cache[i:i + 1],
                 cnn_cache=cnn_cache[i],
