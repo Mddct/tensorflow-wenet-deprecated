@@ -1,6 +1,11 @@
 import tensorflow as tf
 
 
+def subsequent_mask(size: tf.Tensor) -> tf.Tensor:
+    input = tf.ones((size, size), dtype=tf.bool)
+    return tf.linalg.band_part(input, -1, 0)
+
+
 def subsequent_chunk_mask(
         size: tf.Tensor,
         chunk_size: tf.Tensor,
@@ -39,7 +44,8 @@ def add_optional_chunk_mask(xs: tf.Tensor, masks: tf.Tensor,
             chunk_size = max_len
             num_left_chunks = tf.constant(-1, dtype=tf.int64)
         elif decoding_chunk_size > 0:
-            chunk_size = decoding_chunk_size
+            chunk_size = tf.convert_to_tensor(decoding_chunk_size,
+                                              dtype=tf.int64)
             num_left_chunks = tf.convert_to_tensor(num_decoding_left_chunks,
                                                    dtype=tf.int64)
         else:
@@ -61,14 +67,15 @@ def add_optional_chunk_mask(xs: tf.Tensor, masks: tf.Tensor,
                                                         dtype=tf.int64)
 
     elif static_chunk_size > 0:
-        num_left_chunks = num_decoding_left_chunks
+        num_left_chunks = tf.convert_to_tensor(num_decoding_left_chunks,
+                                               dtype=tf.int64)
         chunk_size = tf.convert_to_tensor(static_chunk_size)
     else:
         return masks
 
     chunk_masks = subsequent_chunk_mask(
         tf.shape(xs)[1], chunk_size, num_left_chunks)  # (L, L)
-    chunk_masks = tf.transpose(chunk_masks, [1, 0])  # [L, L]
+    masks = tf.transpose(masks, [0, 2, 1])  # [B, 1, T]
     chunk_masks = tf.expand_dims(chunk_masks, 0)  #[1,L, L]
     chunk_masks = masks & chunk_masks  # (B, L, L)
 

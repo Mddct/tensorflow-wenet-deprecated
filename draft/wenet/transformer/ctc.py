@@ -53,6 +53,7 @@ class CTC(tf.keras.layers.Layer):
             ys_lens,
             hlens,
             logits_time_major=False,
+            blank_index=0,  # wenet default blank is 0
         )
 
         # Batch-size average

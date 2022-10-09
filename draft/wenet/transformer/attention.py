@@ -156,7 +156,7 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         """
         q, k, v = self.forward_qkv(query, key, value)
 
-        if not training:
+        if not training and cache is not None:
             key_cache, value_cache = tf.split(cache,
                                               cache.size(-1) // 2,
                                               axis=-1)
@@ -227,8 +227,8 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         query: tf.Tensor,
         key: tf.Tensor,
         value: tf.Tensor,
-        pos_emb: tf.Tensor,
         mask: Optional[tf.Tensor] = None,
+        pos_emb: tf.Tensor = None,
         cache: Optional[tf.Tensor] = None,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor]:
@@ -253,7 +253,7 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         q, k, v = self.forward_qkv(query, key, value)
         q = tf.transpose(q, [0, 2, 1, 3])  # (batch, time1, head, d_k)
 
-        if not training:
+        if not training and cache is not None:
             key_cache, value_cache = tf.split(cache,
                                               tf.shape(cache)[-1] // 2,
                                               axis=-1)
