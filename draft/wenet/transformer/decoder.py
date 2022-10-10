@@ -102,7 +102,7 @@ class TransformerDecoder(tf.keras.layers.Layer):
         """Forward decoder.
         Args:
             memory: encoded memory, float32  (batch, maxlen_in, feat)
-            memory_mask: encoder memory mask, (batch, 1, maxlen_in)
+            memory_mask: encoder memory mask, (batch, maxlen_in, 1)
             ys_in_pad: padded input token ids, int64 (batch, maxlen_out)
             ys_in_lens: input lengths of this batch (batch)
             r_ys_in_pad: not used in transformer decoder, in order to unify api
@@ -120,7 +120,8 @@ class TransformerDecoder(tf.keras.layers.Layer):
         maxlen = tf.shape(tgt)[1]
 
         # tgt_mask: (B, 1, L)
-        tgt_mask = tf.expand_dims(~make_pad_mask(ys_in_lens, maxlen), axis=1)
+        tgt_mask = tf.expand_dims(tf.sequence_mask(ys_in_lens, maxlen), axis=1)
+
         # m: (1, L, L)
         m = tf.expand_dims(subsequent_mask(maxlen), axis=0)
         # tgt_mask: (B, L, L)

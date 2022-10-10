@@ -75,7 +75,7 @@ def add_optional_chunk_mask(xs: tf.Tensor, masks: tf.Tensor,
 
     chunk_masks = subsequent_chunk_mask(
         tf.shape(xs)[1], chunk_size, num_left_chunks)  # (L, L)
-    masks = tf.transpose(masks, [0, 2, 1])  # [B, 1, T]
+    masks = tf.transpose(masks, [0, 2, 1])  # [B, 1, l]
     chunk_masks = tf.expand_dims(chunk_masks, 0)  #[1,L, L]
     chunk_masks = masks & chunk_masks  # (B, L, L)
 

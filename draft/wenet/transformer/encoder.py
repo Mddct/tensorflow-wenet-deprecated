@@ -143,7 +143,7 @@ class BaseEncoder(tf.keras.layers.Layer):
             encoder output tensor xs, and subsampled masks
             xs: padded output tensor (B, T' ~= T/subsample_rate, D)
             masks: tf.Tensor batch padding mask after subsample
-                (B, 1, T' ~= T/subsample_rate)
+                (B, T' ~= T/subsample_rate, 1)
         """
         masks = tf.expand_dims(tf.sequence_mask(xs_lens), axis=2)  # (B, T, 1)
         if self.global_cmvn is not None:

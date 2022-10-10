@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 
-class GloablCMVN(tf.keras.layers.Layer):
+class GlobalCMVN(tf.keras.layers.Layer):
 
     def __init__(self,
                  mean: tf.Tensor,

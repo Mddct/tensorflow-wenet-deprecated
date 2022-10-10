@@ -153,4 +153,4 @@ class DecoderLayer(tf.keras.layers.Layer):
         if cache is not None:
             x = tf.concat([cache, x], axis=1)
 
-        return x, tgt_mask, memory, memory_maskg
+        return x, tgt_mask, memory, memory_mask

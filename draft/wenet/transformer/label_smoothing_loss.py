@@ -35,7 +35,7 @@ class LabelSmoothingLoss(tf.keras.losses.Loss):
             losses [B]
         """
 
-        ignore = tf.expand_dims(y_true == self.padding_idx, axis=2) # [B, L, 1]
+        ignore = tf.expand_dims(y_pred == self.padding_idx, axis=2) # [B, L, 1]
         y_true = tf.one_hot(y_true,
                    depth=self.size_,
                    on_value=self.confidence
