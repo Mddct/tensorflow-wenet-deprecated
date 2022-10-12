@@ -177,6 +177,11 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
             gamma_regularizer=kernel_regularizer,
             beta_regularizer=bias_regularizer,
         )
+        self.norm_mha = tf.keras.layers.LayerNormalization(
+            gamma_regularizer=kernel_regularizer,
+            beta_regularizer=bias_regularizer,
+        )
+
         if feed_forward_macaron is not None:
             # self.norm_ff_macaron = nn.LayerNorm(size, eps=1e-5)
             self.norm_ff_macaron = tf.keras.layers.LayerNormalization(

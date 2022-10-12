@@ -111,7 +111,7 @@ class BaseEncoder(tf.keras.layers.Layer):
         self.after_norm = tf.keras.layers.LayerNormalization(
             gamma_regularizer=kernel_regularizer,
             beta_regularizer=bias_regularizer,
-            eps=1e-5,
+            epsilon=1e-5,
         )
         self.static_chunk_size = static_chunk_size
         self.use_dynamic_chunk = use_dynamic_chunk
@@ -124,8 +124,8 @@ class BaseEncoder(tf.keras.layers.Layer):
         self,
         xs: tf.Tensor,
         xs_lens: tf.Tensor,
-        decoding_chunk_size: int,
-        num_decoding_left_chunks: int,
+        decoding_chunk_size: int = 0,
+        num_decoding_left_chunks: int = -1,
     ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Embed positions in tensor.
         Args:
@@ -149,7 +149,7 @@ class BaseEncoder(tf.keras.layers.Layer):
         if self.global_cmvn is not None:
             xs = self.global_cmvn(xs)
         # offset = [0, 0....] for training
-        fake_offset = tf.ones(tf.shape(xs)[0], dtype=tf.int64)
+        fake_offset = tf.ones(tf.shape(xs)[0], dtype=xs_lens.dtype)
         xs, pos_emb, masks = self.embed(xs, masks, fake_offset, training=True)
         mask_pad = masks  # (B, T/subsample_rate, 1)
         chunk_masks = add_optional_chunk_mask(xs, masks,
@@ -374,7 +374,7 @@ class ConformerEncoder(BaseEncoder):
         convolution_layer_args = (output_size, cnn_module_kernel,
                                   activation_type, cnn_module_norm, causal)
 
-        self.encodrs = [
+        self.encoders = [
             ConformerEncoderLayer(
                 output_size,
                 encoder_selfattn_layer(*encoder_selfattn_layer_args),

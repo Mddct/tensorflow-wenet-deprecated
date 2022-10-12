@@ -1,4 +1,5 @@
 import math
+from itertools import accumulate
 
 import tensorflow as tf
 
@@ -113,10 +114,10 @@ class ActivationLayer(tf.keras.layers.Layer):
         name: str,
         **kwargs,
     ):
-        super(ActivationLayer, self).__init__(name=name.upper(), **kwargs)
+        super(ActivationLayer, self).__init__(**kwargs)
         self.activation = None
-        assert IsSupported(self.name)
-        self.activation = GetFn(self.name)
+        assert IsSupported(name.upper())
+        self.activation = GetFn(name.upper())
 
     def call(
         self,

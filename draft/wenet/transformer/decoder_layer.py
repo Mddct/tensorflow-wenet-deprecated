@@ -112,11 +112,12 @@ class DecoderLayer(tf.keras.layers.Layer):
             tgt_q_mask = tgt_mask[:, -1:, :]
 
         if self.concat_after:
-            tgt_concat = tf.concat(
-                (tgt_q,
-                 self.self_attn(tgt_q, tgt, tgt, tgt_q_mask,
-                                training=training)[0]),
-                axis=-1)
+            tgt_concat = tf.concat([
+                tgt_q,
+                self.self_attn(tgt_q, tgt, tgt, tgt_q_mask,
+                               training=training)[0]
+            ],
+                                   axis=-1)
             x = residual + self.concat_linear1(tgt_concat)
         else:
             x = residual + self.dropout(
@@ -133,7 +134,7 @@ class DecoderLayer(tf.keras.layers.Layer):
                 (x,
                  self.src_attn(
                      x, memory, memory, memory_mask, training=training)[0]),
-                dim=-1)
+                axis=-1)
             x = residual + self.concat_linear2(x_concat)
         else:
             x = residual + self.dropout(self.src_attn(

@@ -132,7 +132,7 @@ class ConvolutionModule(tf.keras.layers.Layer):
 
         # 1D Depthwise Conv
         x = self.depthwise_conv(x, training=training)
-        x = self.activation(self.norm(x))
+        x = self.activation(self.norm(x, training=training))
         x = self.pointwise_conv2(x, training=training)
         x = self.dropout(x, training=training)
 

@@ -7,7 +7,7 @@ IGNORE_ID = -1
 
 def reverse_pad_list(ys_pad: tf.Tensor,
                      ys_lens: tf.Tensor,
-                     pad_value: float = -1.0) -> tf.Tensor:
+                     pad_value: int = -1) -> tf.Tensor:
     """Reverse padding for the list of tensors.
     Args:
         ys_pad (tensor): The padded tensor (B, Tokenmax).
@@ -27,7 +27,6 @@ def reverse_pad_list(ys_pad: tf.Tensor,
     index = tf.expand_dims(tf.range(0, maxlen), axis=0)  # [1,B]
 
     index = tf.expand_dims(ys_lens, axis=1) - 1 - index  # [B,B]
-    print(index)
 
     squence_mask = tf.sequence_mask(ys_lens, maxlen=maxlen)
     index = tf.where(squence_mask, index, 0)
@@ -72,8 +71,8 @@ def add_sos_eos(ys_pad: tf.Tensor, ys_lens: tf.Tensor, sos: int, eos: int,
 
     ys_pad = tf.where(ys_pad == ignore_id, eos, ys_pad)
     # TODO: for now,  assume ignore id always in tail of uttrance
-    ys_in = tf.concat([sos_tensor, ys_pad], axis=0)
-    ys_out = tf.concat([ys_pad, eos_tensor], axis=0)
+    ys_in = tf.concat([sos_tensor, ys_pad], axis=1)
+    ys_out = tf.concat([ys_pad, eos_tensor], axis=1)
 
     ys_out = tf.where(
         tf.sequence_mask(ys_lens + 1, maxlen=ys_pad_shape[1] + 1), ys_out,
@@ -96,21 +95,21 @@ def _large_compatible_negative(tensor_type):
 
 
 def mask_softmax_v1(input, mask):
-    inputs = tf.where(mask, -float('inf'), inputs)
+    input = tf.where(mask, -float('inf'), input)
 
     return tf.nn.softmax(input, axis=-1)  # (batch, head, time1, time2)
 
 
 def mask_softmax_v2(input, mask):
     assert mask is not None
-    adder = (1.0 - tf.cast(mask, inputs.dtype)) * (_large_compatible_negative(
-        inputs.dtype))
+    adder = (1.0 - tf.cast(mask, input.dtype)) * (_large_compatible_negative(
+        input.dtype))
 
     # Since we are adding it to the raw scores before the softmax, this
     # is effectively the same as removing these entirely.
-    inputs += adder
+    input += adder
 
     return tf.nn.softmax(input, axis=-1)
 
 
-mask_softmax = mask_softmax_v2
+mask_softmax = mask_softmax_v1

@@ -68,7 +68,6 @@ class PositionalEncoding(tf.keras.layers.Layer):
             tf.Tensor: Encoded tensor. Its shape is (batch, time, ...)
             tf.Tensor: for compatibility to RelPositionalEncoding
         """
-
         pos_emb = self.position_encoding(offset,
                                          tf.shape(x)[1],
                                          False,
@@ -90,13 +89,13 @@ class PositionalEncoding(tf.keras.layers.Layer):
         increasing input size in a streaming scenario, so the dropout will
         be applied several times.
         Args:
-            offset (tf.Tensor): start offset
+            offset (tf.Tensor): start offset [B]
             size (tf.Tensor): required size of position encoding
         Returns:
             tf.Tensor: Corresponding encoding
         """
-        tf.assert_less(tf.reduce_max(offset) + size, self.max_len)
-        index = tf.add(tf.expand_dims(offset, axis=1), tf.range(0, size))
+        # tf.assert_less(tf.reduce_max(offset) + size, self.max_len)
+        index = tf.range(0, size) + tf.expand_dims(offset, axis=1)
         index = tf.where(index > 0, index, 0)
         pos_emb = tf.nn.embedding_lookup(self.pe[0], index)
         # pos_emb = F.embedding(index, self.pe[0])  # B X T X d_model
@@ -134,6 +133,7 @@ class RelPositionalEncoding(PositionalEncoding):
         """Compute positional encoding.
         Args:
             x (tf.Tensor): Input tensor (batch, time, `*`).
+            offset (tf.Tensor): [B]
         Returns:
             tf.Tensor: Encoded tensor (batch, time, `*`).
             tf..Tensor: Positional embedding tensor (1, time, `*`).

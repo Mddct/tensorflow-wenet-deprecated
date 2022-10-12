@@ -1,6 +1,6 @@
 """Subsampling layer definition."""
 
-from typing import Tuple, Union
+from typing import Tuple
 
 import tensorflow as tf
 from wenet.transformer.activations import ActivationLayer

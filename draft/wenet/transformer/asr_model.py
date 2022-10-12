@@ -21,6 +21,7 @@ class ASRModel(tf.keras.Model):
         ignore_id: int = IGNORE_ID,
         reverse_weight: float = 0.0,
         lsm_weight: float = 0.0,
+        length_normalized_loss: bool = False,
     ):
         assert 0.0 <= ctc_weight <= 1.0, ctc_weight
 
@@ -58,9 +59,10 @@ class ASRModel(tf.keras.Model):
         """
         # 1. Encoder
         encoder_out, encoder_mask = self.encoder(speech, speech_lengths)
-        encoder_out_lens = tf.reduce_sum(tf.cast(encoder_mask, dtype=tf.int64),
-                                         axis=1)  # [B,]
-
+        encoder_out_lens = tf.squeeze(tf.reduce_sum(tf.cast(
+            encoder_mask, dtype=text_lengths.dtype),
+                                                    axis=1),
+                                      axis=1)  # [B,]
         # 2a. Attention-decoder branch
         if self.ctc_weight != 1.0:
             loss_att = self._calc_att_loss(encoder_out, encoder_mask, text,
@@ -70,6 +72,8 @@ class ASRModel(tf.keras.Model):
 
         # 2b. CTC branch
         if self.ctc_weight != 0.0:
+            print(encoder_out.shape, encoder_out_lens.shape, text.shape,
+                  text_lengths.shape)
             loss_ctc = self.ctc(encoder_out, encoder_out_lens, text,
                                 text_lengths)
         else:
@@ -96,18 +100,18 @@ class ASRModel(tf.keras.Model):
         ys_in_lens = ys_pad_lens + 1
 
         # reverse the seq, used for right to left decoder
-        r_ys_pad = reverse_pad_list(ys_pad, ys_pad_lens, float(self.ignore_id))
+        r_ys_pad = reverse_pad_list(ys_pad, ys_pad_lens, self.ignore_id)
         r_ys_in_pad, r_ys_out_pad = add_sos_eos(r_ys_pad, ys_pad_lens,
                                                 self.sos, self.eos,
                                                 self.ignore_id)
         # 1. Forward decoder
-        decoder_out, r_decoder_out, _ = self.decoder(encoder_out, encoder_mask,
-                                                     ys_in_pad, ys_in_lens,
-                                                     r_ys_in_pad,
-                                                     self.reverse_weight)
+        decoder_out, r_decoder_out = self.decoder(encoder_out, encoder_mask,
+                                                  ys_in_pad, ys_in_lens,
+                                                  r_ys_in_pad,
+                                                  self.reverse_weight)
         # 2. Compute attention loss
-        loss_att = self.criterion_att(decoder_out, ys_out_pad)
-        r_loss_att = tf.tensor(0.0)
+        loss_att = self.criterion_att(ys_out_pad, decoder_out)
+        r_loss_att = 0.0
         if self.reverse_weight > 0.0:
             r_loss_att = self.criterion_att(r_decoder_out, r_ys_out_pad)
         loss_att = loss_att * (

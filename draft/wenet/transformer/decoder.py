@@ -54,10 +54,13 @@ class TransformerDecoder(tf.keras.layers.Layer):
         attention_dim = encoder_output_size
 
         if input_layer == "embed":
-            self.embed = tf.keras.Sequential([
-                tf.keras.layers.Embedding(vocab_size, attention_dim),
-                PositionalEncoding(attention_dim, positional_dropout_rate)
-            ])
+            self.look_up = tf.keras.layers.Embedding(vocab_size, attention_dim)
+            self.position = PositionalEncoding(attention_dim,
+                                               positional_dropout_rate)
+            # self.embed = tf.keras.Sequential([
+            #     tf.keras.layers.Embedding(vocab_size, attention_dim),
+            #     PositionalEncoding(attention_dim, positional_dropout_rate)
+            # ])
         else:
             raise ValueError(f"only 'embed' is supported: {input_layer}")
 
@@ -117,7 +120,8 @@ class TransformerDecoder(tf.keras.layers.Layer):
                 # olens: (batch, )
         """
         tgt = ys_in_pad
-        maxlen = tf.shape(tgt)[1]
+        tgt_shape = tf.shape(tgt)
+        maxlen = tgt_shape[1]
 
         # tgt_mask: (B, 1, L)
         tgt_mask = tf.expand_dims(tf.sequence_mask(ys_in_lens, maxlen), axis=1)
@@ -126,7 +130,13 @@ class TransformerDecoder(tf.keras.layers.Layer):
         m = tf.expand_dims(subsequent_mask(maxlen), axis=0)
         # tgt_mask: (B, L, L)
         tgt_mask = tgt_mask & m
-        x, _ = self.embed(tgt)
+
+        # x, _ = self.embed(tgt)
+        fake_offset = tf.zeros([tgt_shape[0]], dtype=tgt.dtype)
+        x = self.look_up(tgt)
+        x, _ = self.position(x, fake_offset, training=training)
+
+        memory_mask = tf.transpose(memory_mask, [0, 2, 1])  # [B,1,T]
         for layer in self.decoders:
             x, tgt_mask, memory, memory_mask = layer(x,
                                                      tgt_mask,
@@ -162,7 +172,10 @@ class TransformerDecoder(tf.keras.layers.Layer):
             y, cache: NN output value and cache per `self.decoders`.
             y.shape` is (batch, maxlen_out, token)
         """
-        x, _ = self.embed(tgt)
+
+        x = self.look_up(tgt)
+        x, _ = self.position(x, fake_offset, training=False)
+        # x, _ = self.embed(tgt)
         new_cache = []
         for i, decoder in enumerate(self.decoders):
             if cache is None:

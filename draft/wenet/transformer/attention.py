@@ -196,8 +196,6 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         super().__init__(n_head, n_feat, dropout_rate)
         # linear transformation for positional encoding
         self.linear_pos = tf.keras.layers.Dense(n_feat)
-
-    def build(self, input_shape):
         self.pos_bias_u = tf.Variable(
             initial_value=XavierUniform(shape=[self.h, self.d_k],
                                         dtype=tf.float32),
@@ -228,7 +226,7 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         key: tf.Tensor,
         value: tf.Tensor,
         mask: Optional[tf.Tensor] = None,
-        pos_emb: tf.Tensor = None,
+        pos_emb: Optional[tf.Tensor] = None,
         cache: Optional[tf.Tensor] = None,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor]:
@@ -288,4 +286,5 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         scores = (matrix_ac + matrix_bd) / math.sqrt(
             self.d_k)  # (batch, head, time1, time2)
 
-        return self.forward_attention(v, scores, mask), new_cache
+        return self.forward_attention(v, scores, mask,
+                                      training=training), new_cache
