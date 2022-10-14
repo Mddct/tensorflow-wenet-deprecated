@@ -67,13 +67,13 @@ def speed_perturb(waveform, sr, speeds=tf.constant([0.9, 1, 1.1])):
     return speed(waveform, sr, speeds)
 
 
-def spec_trim(waveform, max_t=20):
+def spec_trim(feats, max_t=20):
     """ Trim tailing frames. 
         ref: Rapid-U2++ [arxiv link]
         Args:
         Returns
     """
-    max_frames = tf.shape(waveform)[0]
+    max_frames = tf.shape(feats)[0]
 
     length = tf.random.uniform(shape=[],
                                minval=0,
@@ -81,8 +81,13 @@ def spec_trim(waveform, max_t=20):
                                dtype=max_frames.dtype)
 
     return tf.cond(tf.math.less(length, max_frames // 2),
-                   lambda: waveform[:(max_frames - length), :],
-                   lambda: waveform)
+                   lambda: feats[:(max_frames - length), :], lambda: feats)
+
+
+def spec_aug(feats, feats_length, augmenter=None):
+    if augmenter is None:
+        return feats
+    return augmenter(feats, feats_length)
 
 
 @tf.function
