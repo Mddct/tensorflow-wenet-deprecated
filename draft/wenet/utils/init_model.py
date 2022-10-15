@@ -11,7 +11,7 @@ def init_model(configs):
     if configs['cmvn_file'] is not None:
         mean, istd = load_cmvn(configs['cmvn_file'], configs['is_json_cmvn'])
         global_cmvn = GlobalCMVN(tf.convert_to_tensor(mean, dtype=tf.float32),
-                                 tf.convert_to_tensor(istd, dtype - tf.float3))
+                                 tf.convert_to_tensor(istd, dtype=tf.float32))
     else:
         global_cmvn = None
 
@@ -29,15 +29,21 @@ def init_model(configs):
         encoder = TransformerEncoder(input_dim,
                                      global_cmvn=global_cmvn,
                                      **configs['encoder_conf'])
-    if decoder_type == 'transformer':
-        decoder = TransformerDecoder(vocab_size, encoder.output_size(),
-                                     **configs['decoder_conf'])
-    else:
-        assert 0.0 < configs['model_conf']['reverse_weight'] < 1.0
-        assert configs['decoder_conf']['r_num_blocks'] > 0
-        decoder = BiTransformerDecoder(vocab_size, encoder.output_size(),
-                                       **configs['decoder_conf'])
-    ctc = CTC(vocab_size, encoder.output_size())
+
+    ctc_weight = configs['model_conf']['ctc_weight']
+    decoder = None
+    if ctc_weight != 1.0:
+        if decoder_type == 'transformer':
+            decoder = TransformerDecoder(vocab_size, encoder.output_size(),
+                                         **configs['decoder_conf'])
+        else:
+            assert 0.0 < configs['model_conf']['reverse_weight'] < 1.0
+            assert configs['decoder_conf']['r_num_blocks'] > 0
+            decoder = BiTransformerDecoder(vocab_size, encoder.output_size(),
+                                           **configs['decoder_conf'])
+    ctc = None
+    if ctc_weight != 0.0:
+        ctc = CTC(vocab_size, encoder.output_size())
 
     # Init joint CTC/Attention or Transducer model
     if 'predictor' in configs:

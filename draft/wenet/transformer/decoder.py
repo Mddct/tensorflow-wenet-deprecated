@@ -5,9 +5,10 @@ import tensorflow as tf
 from typeguard import check_argument_types
 from wenet.transformer.attention import MultiHeadedAttention
 from wenet.transformer.decoder_layer import DecoderLayer
-from wenet.transformer.embedding import PositionalEncoding
+from wenet.transformer.embedding import (EmbeddingSharedWeights,
+                                         PositionalEncoding)
 from wenet.transformer.positionwise_feed_forward import PositionwiseFeedForward
-from wenet.utils.mask import make_pad_mask, subsequent_mask
+from wenet.utils.mask import subsequent_mask
 
 
 class TransformerDecoder(tf.keras.layers.Layer):
@@ -44,6 +45,7 @@ class TransformerDecoder(tf.keras.layers.Layer):
             src_attention_dropout_rate: float = 0.0,
             input_layer: str = "embed",
             use_output_layer: bool = True,
+            output_layer_share_weights: bool = False,
             normalize_before: bool = True,
             concat_after: bool = False,
             kernel_regularizer=tf.keras.regularizers.l2(1e-6),
@@ -53,14 +55,16 @@ class TransformerDecoder(tf.keras.layers.Layer):
         super().__init__()
         attention_dim = encoder_output_size
 
+        self.d_model = attention_dim
         if input_layer == "embed":
-            self.look_up = tf.keras.layers.Embedding(vocab_size, attention_dim)
+            # self.look_up = tf.keras.layers.Embedding(
+            #     vocab_size,
+            #     self.d_model,
+            #     embeddings_initializer=tf.keras.initializers.RandomNormal(
+            #         mean=0.0, stddev=attention_dim**-0.5, seed=None))
+            self.look_up = EmbeddingSharedWeights(vocab_size, self.d_model)
             self.position = PositionalEncoding(attention_dim,
                                                positional_dropout_rate)
-            # self.embed = tf.keras.Sequential([
-            #     tf.keras.layers.Embedding(vocab_size, attention_dim),
-            #     PositionalEncoding(attention_dim, positional_dropout_rate)
-            # ])
         else:
             raise ValueError(f"only 'embed' is supported: {input_layer}")
 
@@ -74,7 +78,11 @@ class TransformerDecoder(tf.keras.layers.Layer):
         self.use_output_layer = use_output_layer
 
         # [attention_dim vocab_size]
-        self.output_layer = tf.keras.layers.Dense(vocab_size)
+        self.output_layer_share_weights = output_layer_share_weights
+        if output_layer_share_weights:
+            self.output_layer = self.look_up
+        else:
+            self.output_layer = tf.keras.layers.Dense(vocab_size)
 
         self.num_blocks = num_blocks
         self.decoders = [
@@ -105,7 +113,7 @@ class TransformerDecoder(tf.keras.layers.Layer):
         """Forward decoder.
         Args:
             memory: encoded memory, float32  (batch, maxlen_in, feat)
-            memory_mask: encoder memory mask, (batch, maxlen_in, 1)
+            memory_mask: encoder memory mask, (batch, 1, maxlen_in)
             ys_in_pad: padded input token ids, int64 (batch, maxlen_out)
             ys_in_lens: input lengths of this batch (batch)
             r_ys_in_pad: not used in transformer decoder, in order to unify api
@@ -136,7 +144,7 @@ class TransformerDecoder(tf.keras.layers.Layer):
         x = self.look_up(tgt)
         x, _ = self.position(x, fake_offset, training=training)
 
-        memory_mask = tf.transpose(memory_mask, [0, 2, 1])  # [B,1,T]
+        # memory_mask = tf.transpose(memory_mask, [0, 2, 1])  # [B,1,T]
         for layer in self.decoders:
             x, tgt_mask, memory, memory_mask = layer(x,
                                                      tgt_mask,
@@ -146,7 +154,10 @@ class TransformerDecoder(tf.keras.layers.Layer):
         if self.normalize_before:
             x = self.after_norm(x)
         if self.use_output_layer:
-            x = self.output_layer(x)
+            if self.output_layer_share_weights:
+                x = self.output_layer(x, mode="linear")
+            else:
+                x = self.output_layer(x)
         # olens = tf.reduce_sum(tgt_mask, axis=1)
         return x, tf.constant(0.0, dtype=x.dtype)
 
@@ -194,7 +205,11 @@ class TransformerDecoder(tf.keras.layers.Layer):
         else:
             y = x[:, -1]
         if self.use_output_layer:
-            y = tf.nn.log_softmax(self.output_layer(y), axis=-1)
+            if self.output_layer_share_weights:
+                y = self.output_layer(y, mode='linear')
+            else:
+                y = self.output_layer(y)
+            y = tf.nn.log_softmax(y, axis=-1)
         return y, new_cache
 
 
@@ -285,7 +300,7 @@ class BiTransformerDecoder(tf.keras.layers.Layer):
                                           ys_in_pad,
                                           ys_in_lens,
                                           training=training)
-        r_x = tf.consstant(0.0, l_x.dtype)
+        r_x = tf.constant(0.0, l_x.dtype)
         if reverse_weight > 0.0:
             r_x, _, olens = self.right_decoder(memory,
                                                memory_mask,
@@ -316,9 +331,10 @@ class BiTransformerDecoder(tf.keras.layers.Layer):
             y, cache: NN output value and cache per `self.decoders`.
             y.shape` is (batch, maxlen_out, token)
         """
-        return self.left_decoder.forward_one_step(memory,
-                                                  memory_mask,
-                                                  tgt,
-                                                  tgt_mask,
-                                                  cache,
-                                                  training=False)
+        return self.left_decoder.forward_one_step(
+            memory,
+            memory_mask,
+            tgt,
+            tgt_mask,
+            cache,
+        )

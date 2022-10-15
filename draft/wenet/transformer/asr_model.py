@@ -35,13 +35,15 @@ class ASRModel(tf.keras.Model):
         self.reverse_weight = reverse_weight
 
         self.encoder = encoder
-        self.decoder = decoder
-        self.ctc = ctc
-        self.criterion_att = LabelSmoothingLoss(
-            size=vocab_size,
-            padding_idx=ignore_id,
-            smoothing=lsm_weight,
-        )
+        if self.ctc_weight != 1:
+            self.decoder = decoder
+            self.criterion_att = LabelSmoothingLoss(
+                size=vocab_size,
+                padding_idx=ignore_id,
+                smoothing=lsm_weight,
+            )
+        if self.ctc_weight != 0:
+            self.ctc = ctc
 
     def call(
         self,
@@ -59,10 +61,10 @@ class ASRModel(tf.keras.Model):
         """
         # 1. Encoder
         encoder_out, encoder_mask = self.encoder(speech, speech_lengths)
-        encoder_out_lens = tf.squeeze(tf.reduce_sum(tf.cast(
-            encoder_mask, dtype=text_lengths.dtype),
-                                                    axis=1),
-                                      axis=1)  # [B,]
+        encoder_out_lens = tf.reduce_sum(tf.cast(tf.squeeze(encoder_mask,
+                                                            axis=1),
+                                                 dtype=text_lengths.dtype),
+                                         axis=1)  # [B,]
         # 2a. Attention-decoder branch
         if self.ctc_weight != 1.0:
             loss_att = self._calc_att_loss(encoder_out, encoder_mask, text,
@@ -72,8 +74,6 @@ class ASRModel(tf.keras.Model):
 
         # 2b. CTC branch
         if self.ctc_weight != 0.0:
-            print(encoder_out.shape, encoder_out_lens.shape, text.shape,
-                  text_lengths.shape)
             loss_ctc = self.ctc(encoder_out, encoder_out_lens, text,
                                 text_lengths)
         else:

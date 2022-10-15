@@ -55,11 +55,10 @@ def speed_fn_v2(waveform: tf.Tensor, sr: tf.Tensor,
 
 @tf.function
 def speed_fn_v3(waveform: tf.Tensor, sr: tf.Tensor,
-                speeds: tf.Tensor) -> tf.Tesnor:
+                speeds: tf.Tensor) -> tf.Tensor:
     distributed = tf.ones([1, tf.shape(speeds)[0]])
     index = tf.random.categorical(distributed, 1)[0][0]
     speed = tf.gather(speeds, index)
-    # print(speed)
     if speed == 1.0:
         return waveform
     resample_rate = tf.cast(tf.cast(sr, dtype=tf.float32) * speed,

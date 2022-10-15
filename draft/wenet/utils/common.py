@@ -66,8 +66,9 @@ def add_sos_eos(ys_pad: tf.Tensor, ys_lens: tf.Tensor, sos: int, eos: int,
     """
     ys_pad_shape = tf.shape(ys_pad)
     bs = ys_pad_shape[0]
-    sos_tensor = tf.constant(sos, dtype=ys_pad.dtype, shape=[bs, 1])
-    eos_tensor = tf.constant(eos, dtype=ys_pad.dtype, shape=[bs, 1])
+    ones = tf.zeros([bs, 1], dtype=ys_pad.dtype)
+    sos_tensor = ones + sos
+    eos_tensor = ones + eos
 
     ys_pad = tf.where(ys_pad == ignore_id, eos, ys_pad)
     # TODO: for now,  assume ignore id always in tail of uttrance
@@ -94,13 +95,7 @@ def _large_compatible_negative(tensor_type):
     return -1e9
 
 
-def mask_softmax_v1(input, mask):
-    input = tf.where(mask, -float('inf'), input)
-
-    return tf.nn.softmax(input, axis=-1)  # (batch, head, time1, time2)
-
-
-def mask_softmax_v2(input, mask):
+def mask_softmax(input, mask, name=None):
     assert mask is not None
     adder = (1.0 - tf.cast(mask, input.dtype)) * (_large_compatible_negative(
         input.dtype))
@@ -109,7 +104,29 @@ def mask_softmax_v2(input, mask):
     # is effectively the same as removing these entirely.
     input += adder
 
-    return tf.nn.softmax(input, axis=-1)
+    return tf.nn.softmax(input, axis=-1, name=name)
 
 
-mask_softmax = mask_softmax_v1
+def label_smoothing_loss(y_true,
+                         y_pred,
+                         size,
+                         padding_idx,
+                         smoothing,
+                         reduction=None):
+    low_confidence = smoothing / (size - 1)
+    confidence = 1 - smoothing
+
+    ignore = tf.expand_dims(y_true == padding_idx, axis=2)  # [B, L, 1]
+    y_true = tf.one_hot(
+        y_true,
+        depth=size,
+        on_value=confidence,
+        off_value=low_confidence,
+    )  # [B, L, V]
+    y_pred = tf.nn.log_softmax(y_pred)
+    output = y_true * tf.exp(y_true - y_pred)  # [B, L, V]
+    output = tf.where(ignore, 0, output)  # [B, L, V]
+    output = tf.reduce_sum(tf.reduce_sum(output, axis=-1), axis=-1)  # [B]
+
+    # NOTE: distributed strateggy need sum average all global size
+    return output

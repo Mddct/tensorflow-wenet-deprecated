@@ -349,7 +349,7 @@ public:
     OP_REQUIRES_OK(ctx, ctx->GetAttr("dither", &dither_));
 
     frame_length_ = sample_rate_ / 1000 * frame_length_;
-    frame_shift_ = sample_rate_ / 10000 * 10;
+    frame_shift_ = sample_rate_ / 1000 * 10;
   }
 
   void Compute(OpKernelContext* ctx) override {

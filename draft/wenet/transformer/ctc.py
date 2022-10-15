@@ -42,6 +42,8 @@ class CTC(tf.keras.layers.Layer):
             hlens: batch of lengths of hidden state sequences (B)
             ys_pad: batch of padded character id sequence tensor (B, Lmax)
             ys_lens: batch of lengths of character sequence (B)
+        Returns:
+            loss_ctc: [batch]
         """
         # hs_pad: (B, L, NProj) -> ys_hat: (B, L, Nvocab)
         ys_hat = self.ctc_lo(hs_pad, training=training)
@@ -56,8 +58,6 @@ class CTC(tf.keras.layers.Layer):
             blank_index=0,  # wenet default blank is 0
         )
 
-        # Batch-size average
-        loss = tf.reduce_sum(loss)
         return loss
 
     def log_softmax(self,

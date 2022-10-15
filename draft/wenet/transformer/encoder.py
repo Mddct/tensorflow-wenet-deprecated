@@ -152,6 +152,7 @@ class BaseEncoder(tf.keras.layers.Layer):
         fake_offset = tf.ones(tf.shape(xs)[0], dtype=xs_lens.dtype)
         xs, pos_emb, masks = self.embed(xs, masks, fake_offset, training=True)
         mask_pad = masks  # (B, T/subsample_rate, 1)
+        masks = tf.transpose(masks, [0, 2, 1])  # (B, 1, T/subsample_rate)
         chunk_masks = add_optional_chunk_mask(xs, masks,
                                               self.use_dynamic_chunk,
                                               self.use_dynamic_left_chunk,

@@ -33,7 +33,7 @@ class LabelSmoothingLoss(tf.keras.losses.Loss):
             losses [B]
         """
 
-        ignore = tf.expand_dims(y_pred == self.padding_idx,
+        ignore = tf.expand_dims(y_true != self.padding_idx,
                                 axis=2)  # [B, L, 1]
         y_true = tf.one_hot(
             y_true,
@@ -41,10 +41,11 @@ class LabelSmoothingLoss(tf.keras.losses.Loss):
             on_value=self.confidence,
             off_value=self.low_confidence,
         )  # [B, L, V]
+        log_y_true = tf.math.log(y_true)
         y_pred = tf.nn.log_softmax(y_pred)
-        output = y_true * tf.exp(y_true - y_pred)  # [B, L, V]
-        output = tf.where(ignore, output, 0)  # [B, L, V]
+        output = y_true * (log_y_true - y_pred)  # [B, L, V]
 
+        output = tf.cast(ignore, dtype=output.dtype) * output  # [B, L, V]
         output = tf.reduce_sum(tf.reduce_sum(output, axis=-1), axis=-1)  # [B]
 
         # NOTE: distributed strateggy need sum average all global size

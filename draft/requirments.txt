@@ -1,3 +1,4 @@
 tensorflow
 tensorflow-io
 typeguard
+pyyaml

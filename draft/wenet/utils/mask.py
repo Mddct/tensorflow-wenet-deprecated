@@ -31,7 +31,6 @@ def subsequent_chunk_mask(
     )
 
 
-@tf.function
 def add_optional_chunk_mask(xs: tf.Tensor, masks: tf.Tensor,
                             use_dynamic_chunk: bool,
                             use_dynamic_left_chunk: bool,
@@ -75,7 +74,6 @@ def add_optional_chunk_mask(xs: tf.Tensor, masks: tf.Tensor,
 
     chunk_masks = subsequent_chunk_mask(
         tf.shape(xs)[1], chunk_size, num_left_chunks)  # (L, L)
-    masks = tf.transpose(masks, [0, 2, 1])  # [B, 1, l]
     chunk_masks = tf.expand_dims(chunk_masks, 0)  #[1,L, L]
     chunk_masks = masks & chunk_masks  # (B, L, L)
 
@@ -90,7 +88,6 @@ def make_no_pad_mask(lengths: tf.Tensor, max_len):
     return tf.sequence_mask(lengths)
 
 
-@tf.function
 def get_next_cache_start(required_cache_size: tf.Tensor,
                          attention_key_size: tf.Tensor):
     if required_cache_size < 0:

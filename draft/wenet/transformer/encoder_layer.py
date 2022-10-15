@@ -116,7 +116,8 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
         residual = x
         if self.normalize_before:
             x = self.norm2(x)
-        x = residual + self.dropout(self.feed_forward(x), training=training)
+        x = residual + self.dropout(self.feed_forward(x, training=training),
+                                    training=training)
         if not self.normalize_before:
             x = self.norm2(x)
 
@@ -277,7 +278,7 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
             x_concat = tf.concat((x, x_att), axis=-1)
             x = residual + self.concat_linear(x_concat)
         else:
-            x = residual + self.dropout(x_att)
+            x = residual + self.dropout(x_att, training=training)
         if not self.normalize_before:
             x = self.norm_mha(x)
 
@@ -292,7 +293,7 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
                                                 mask_pad,
                                                 cnn_cache,
                                                 training=training)
-            x = residual + self.dropout(x)
+            x = residual + self.dropout(x, training=training)
 
             if not self.normalize_before:
                 x = self.norm_conv(x)
@@ -302,8 +303,8 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
         if self.normalize_before:
             x = self.norm_ff(x)
 
-        x = residual + self.ff_scale * self.dropout(self.feed_forward(x),
-                                                    training=training)
+        x = residual + self.ff_scale * self.dropout(
+            self.feed_forward(x, training=training), training=training)
         if not self.normalize_before:
             x = self.norm_ff(x)
 

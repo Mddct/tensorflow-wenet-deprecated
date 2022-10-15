@@ -1,35 +1,10 @@
 import tensorflow as tf
 # tfio for s3 read
-# import tensorflow_io as tfio
+import tensorflow_io as tfio
 from wenet.tfaudio import fbank, speed
 
 
-# just for simple test, future to tf.text
-def read_symbol_table(symbol_table_file):
-
-    def read_symbol_table_(symbol_table_file):
-        word = []
-        ids = []
-        with open(symbol_table_file, 'r', encoding='utf8') as fin:
-            for line in fin:
-                arr = line.strip().split()
-                assert len(arr) == 2
-                word.append(arr[0])
-                ids.append(int(arr[1]))
-            return word, ids
-
-    words, ids = read_symbol_table_(symbol_table_file)
-
-    init = tf.lookup.KeyValueTensorInitializer(
-        keys=tf.constant(words, dtype=tf.string),
-        values=tf.constant(ids, dtype=tf.int64))
-    return tf.lookup.StaticVocabularyTable(init, num_oov_buckets=1)
-
-
-symbol_table = read_symbol_table("units.txt")
-
-
-def parse_line(line):
+def parse_line(line, symbol_table):
     # wav_path\tlabes
     # a.wav\t你 好 _we net
     # support read from s3
@@ -90,7 +65,6 @@ def spec_aug(feats, feats_length, augmenter=None):
     return augmenter(feats, feats_length)
 
 
-@tf.function
 def filter(waveform,
            sr,
            labels,

@@ -121,7 +121,8 @@ class Conv2dSubsampling4(BaseSubsampling):
         # x = tf.nn.relu(x)
         # x = self.conv2(x)  # (b, t'', f'', odim)
         x = self.conv(x)
-        b, t, f, c = tf.shape(x)
+        x_shape = tf.shape(x)
+        b, t, f, c = x_shape[0], x_shape[1], x_shape[2], x_shape[3]
 
         x = self.out(tf.reshape(x, [b, t, f * c]))
         x, pos_emb = self.pos_enc(x, offset, training=training)
@@ -178,7 +179,8 @@ class Conv2dSubsampling6(BaseSubsampling):
         # x = tf.nn.relu(x)
         # x = self.conv2(x)  # (b, t'', f'', odim)
         x = self.conv(x)
-        b, t, f, c = tf.shape(x)
+        x_shape = tf.shape(x)
+        b, t, f, c = x_shape[0], x_shape[1], x_shape[2], x_shape[3]
 
         x = self.out(tf.reshape(x, [b, t, f * c]))
         x, pos_emb = self.pos_enc(x, offset, training=training)
@@ -235,7 +237,8 @@ class Conv2dSubsampling8(BaseSubsampling):
 
         x = tf.expand_dims(x, axis=3)  # (b, t, f, 1)
         x = self.conv(x)
-        b, t, f, c = tf.shape(x)
+        x_shape = tf.shape(x)
+        b, t, f, c = x_shape[0], x_shape[1], x_shape[2], x_shape[3]
 
         x = self.out(tf.reshape(x, [b, t, f * c]))
         x, pos_emb = self.pos_enc(x, offset, training=training)

@@ -77,43 +77,120 @@ class GradientAccumulator(object):
                 gradient.assign(tf.zeros_like(gradient), read_value=False)
 
 
-class NoamLR(tf.keras.optimizers.schedules.LearningRateSchedule):
-    """lr = optimizer.lr * model_size ** -0.5
-             * min(step ** -0.5, step * warmup_step ** -1.5)
-    """
+# class NoamLR(tf.keras.optimizers.schedules.LearningRateSchedule):
+#     """lr *= model_size ** -0.5
+#              * min(step ** -0.5, step * warmup_step ** -1.5)
+#     """
 
-    def __init__(self, d_model, warmup_steps=4000):
-        super().__init__()
+#     def __init__(self, d_model, warmup_steps=4000.0, max_lr=None):
+#         super().__init__()
 
-        self.d_model = d_model
-        self.d_model = tf.cast(self.d_model, tf.float32)
+#         self.d_model = d_model
+#         self.d_model = tf.cast(self.d_model, tf.float32)
+#         self.warmup_steps = float(warmup_steps)
+#         self.max_lr = max_lr
 
+#     def __call__(self, step):
+#         step = tf.cast(step, dtype=tf.float32)
+#         arg1 = tf.math.rsqrt(step)
+#         arg2 = step * (self.warmup_steps**-1.5)
+
+#         lr = tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+#         if self.max_lr is not None:
+#             return tf.math.minimum(self.max_lr, lr)
+#         return lr
+
+#     def get_config(self):
+#         config = {
+#             'd_model': self.d_model,
+#             'warmup_steps': self.warmup_steps,
+#         }
+
+#         return config
+
+# class WarmupLR(tf.keras.optimizers.schedules.LearningRateSchedule):
+#     """lr *= warmup_step ** 0.5
+#              * min(step ** -0.5, step * warmup_step ** -1.5)
+#     """
+
+#     def __init__(self,
+#                  initial_learning_rate,
+#                  warmup_steps=2500.0,
+#                  max_lr=None):
+#         super().__init__()
+
+#         self.warmup_steps = float(warmup_steps)
+#         self.warmup_steps_tensor = tf.cast(warmup_steps, tf.float32)
+#         self.initial_learning_rate = initial_learning_rate
+#         self.max_lr = max_lr
+
+#     def __call__(self, step):
+#         step = tf.cast(step, dtype=tf.float32)
+#         learning_rate = self.initial_learning_rate
+#         arg1 = tf.math.rsqrt(step)
+#         arg2 = step * (self.warmup_steps**-1.5)
+
+#         lr = learning_rate * tf.math.rsqrt(
+#             self.warmup_steps_tensor) * tf.math.minimum(arg1, arg2)
+
+#         return lr
+
+#     def get_config(self):
+#         config = {
+#             'warmup_steps': self.warmup_steps,
+#         }
+#         config = {}
+
+#         return config
+
+
+class TransformerLearningRateSchedule(
+        tf.keras.optimizers.schedules.LearningRateSchedule):
+    """Learning rate schedule."""
+
+    def __init__(self, initial_learning_rate, hidden_size, warmup_steps):
+        """Initialize configuration of the learning rate schedule.
+
+        Args:
+          initial_learning_rate: A float, the initial learning rate.
+          hidden_size: An integer, the model dimension in the hidden layers.
+          warmup_steps: An integer, the number of steps required for linear warmup.
+        """
+        super(TransformerLearningRateSchedule, self).__init__()
+        self.initial_learning_rate = initial_learning_rate
+        self.hidden_size = hidden_size
         self.warmup_steps = warmup_steps
+        self.warmup_steps_tensor = tf.cast(warmup_steps, tf.float32)
 
-    def __call__(self, step):
-        step = tf.cast(step, dtype=tf.float32)
-        arg1 = tf.math.rsqrt(step)
-        arg2 = step * (self.warmup_steps**-1.5)
+    def __call__(self, global_step):
+        """Calculate learning rate with linear warmup and rsqrt decay.
 
-        return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+        Args:
+        global_step: An integer, the current global step used for learning rate
+          calculation.
 
+        Returns:
+          A float, the learning rate needs to be used for current global step.
+        """
+        with tf.name_scope('transformer_learning_rate_schedule'):
+            global_step = tf.cast(global_step, tf.float32)
+            learning_rate = self.initial_learning_rate
+            learning_rate *= (self.hidden_size**-0.5)
+            # Apply linear warmup
+            learning_rate *= tf.minimum(1.0,
+                                        global_step / self.warmup_steps_tensor)
+            # Apply rsqrt decay
+            learning_rate /= tf.sqrt(
+                tf.maximum(global_step, self.warmup_steps_tensor))
+            return learning_rate
 
-class WarmupLR(tf.keras.optimizers.schedules.LearningRateSchedule):
-    """lr = optimizer.lr * warmup_step ** 0.5
-             * min(step ** -0.5, step * warmup_step ** -1.5)
-    """
-
-    def __init__(self, warmup_steps=2500):
-        super().__init__()
-
-        self.warmup_steps = warmup_steps
-
-    def __call__(self, step):
-        step = tf.cast(step, dtype=tf.float32)
-        arg1 = tf.math.rsqrt(step)
-        arg2 = step * (self.warmup_steps**-1.5)
-
-        return tf.math.rsqrt(self.warmup_steps) * tf.math.minimum(arg1, arg2)
+    def get_config(self):
+        """Get the configuration of the learning rate schedule."""
+        return {
+            'initial_learning_rate': self.initial_learning_rate,
+            'hidden_size': self.hidden_size,
+            'warmup_steps': self.warmup_steps,
+        }
 
 
 # learning_rate = NoamLR(d_model)

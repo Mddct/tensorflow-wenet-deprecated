@@ -109,10 +109,13 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         # attn = tf.nn.softmax(scores, axis=-1)  # (batch, head, time1, time2)
 
         if training:
-            mask = tf.expand_dims(mask, axis=1)
-            attn = mask_softmax(scores, mask)
+            mask = tf.expand_dims(mask, axis=1)  # [B,1, *, time2]
+            attn = mask_softmax(scores, mask, name='attention_weights')
         else:
-            attn = tf.nn.softmax(scores, axis=-1)
+            # NOTE: one uttrance don't need a mask
+            # but for batch streamming inference mask is necessary
+            # TODO: fix
+            attn = tf.nn.softmax(scores, axis=-1, name='attention_weights')
         p_attn = self.dropout(attn, training)
         x = tf.matmul(p_attn, value)  # (batch, head, time1, d_k)
         x = tf.reshape(
@@ -155,7 +158,6 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
                 and `head * d_k == size`
         """
         q, k, v = self.forward_qkv(query, key, value)
-
         if not training and cache is not None:
             key_cache, value_cache = tf.split(cache,
                                               cache.size(-1) // 2,
@@ -165,9 +167,8 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         # NOTE(xcsong): We do cache slicing in encoder.forward_chunk, since it's
         #   non-trivial to calculate `next_cache_start` here.
         new_cache = tf.concat((k, v), axis=-1)
-
-        scores = tf.matmul(q, tf.transpose(k, [0, 1, 3, 2])) / math.sqrt(
-            self.d_k)
+        depth = self.d_k**-0.5
+        scores = tf.matmul(q * depth, tf.transpose(k, [0, 1, 3, 2]))
         return self.forward_attention(v, scores, mask), new_cache
 
     def get_config(self):
@@ -274,17 +275,19 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         # first compute matrix a and matrix c
         # as described in https://arxiv.org/abs/1901.02860 Section 3.3
         # (batch, head, time1, time2)
-        matrix_ac = tf.matmul(q_with_bias_u, tf.transpose(k, [0, 1, 3, 2]))
+        depth = self.d_k**0.5
+        matrix_ac = tf.matmul(q_with_bias_u * depth,
+                              tf.transpose(k, [0, 1, 3, 2]))
 
         # compute matrix b and matrix d
         # (batch, head, time1, time2)
-        matrix_bd = tf.matmul(q_with_bias_v, tf.transpose(p, [0, 1, 3, 2]))
+        matrix_bd = tf.matmul(q_with_bias_v * depth,
+                              tf.transpose(p, [0, 1, 3, 2]))
         # Remove rel_shift since it is useless in speech recognition,
         # and it requires special attention for streaming.
         # matrix_bd = self.rel_shift_(matrix_bd)
 
-        scores = (matrix_ac + matrix_bd) / math.sqrt(
-            self.d_k)  # (batch, head, time1, time2)
+        scores = (matrix_ac + matrix_bd)  # (batch, head, time1, time2)
 
         return self.forward_attention(v, scores, mask,
                                       training=training), new_cache

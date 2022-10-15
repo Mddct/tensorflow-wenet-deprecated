@@ -1,6 +1,7 @@
 import tensorflow as tf
 import wenet.dataset.processor as processor
 from wenet.tfaudio import SpectrumAugmenter
+from wenet.utils.file_utils import read_symbol_table
 
 # communication_options = tf.distribute.experimental.CommunicationOptions(
 #     implementation=tf.distribute.experimental.CommunicationImplementation.NCCL)
@@ -13,22 +14,32 @@ from wenet.tfaudio import SpectrumAugmenter
 # dist_dataset = strategy.distribute_datasets_from_function(dataset_fn)
 
 
-def read_lists(list_file):
-    lists = []
-    with open(list_file, 'r', encoding='utf8') as fin:
-        for line in fin:
-            lists.append(line.strip())
-    return lists
+def look_up_table(symbol_table_path):
+
+    words, ids = read_symbol_table(symbol_table_path)
+    init = tf.lookup.KeyValueTensorInitializer(
+        keys=tf.constant(words, dtype=tf.string),
+        values=tf.constant(ids, dtype=tf.int64),
+    )
+    return tf.lookup.StaticVocabularyTable(
+        init,
+        num_oov_buckets=1,
+    ), len(words)
 
 
-def Dataset(conf,
-            data_list_file,
-            global_batch_size=1,
-            prefetch=tf.data.AUTOTUNE,
-            data_type="shard",
-            strategy=None):
+def Dataset(
+    conf,
+    symbol_table_path,
+    data_list_file,
+    global_batch_size=1,
+    prefetch=tf.data.AUTOTUNE,
+    data_type="shard",
+    strategy=None,
+):
 
-    def dataset_fn(input_context=None):
+    symbol_table, vocab_size = look_up_table(symbol_table_path)
+
+    def dataset_fn(input_context):
         dataset = tf.data.TextLineDataset(data_list_file)
         if data_type == 'shard':
             # eacho shard: dataset element ["shard1.txt", 'shard2.txt'....]
@@ -43,6 +54,9 @@ def Dataset(conf,
         if strategy is not None:
             dataset = dataset.shard(input_context.num_input_pipelines,
                                     input_context.input_pipeline_id)
+        # if epochs > 1:
+        #     dataset = dataset.repeat(epochs)
+        dataset = dataset.repeat()
 
         shuffle = conf.get('shuffle', True)
         if shuffle:
@@ -50,8 +64,9 @@ def Dataset(conf,
             dataset = dataset.shuffle(buffer_size=shuffle_conf['shuffle_size'],
                                       reshuffle_each_iteration=True)
 
-        dataset = dataset.map(processor.parse_line,
-                              num_parallel_calls=tf.data.AUTOTUNE)
+        dataset = dataset.map(
+            lambda line: processor.parse_line(line, symbol_table),
+            num_parallel_calls=tf.data.AUTOTUNE)
         # file may not found in  parse_line, ignore error
         dataset = dataset.apply(tf.data.experimental.ignore_errors())
         dataset = dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
@@ -113,12 +128,13 @@ def Dataset(conf,
                 (processor.spec_aug(feats, feats_length, augmenter),
                  feats_length, labels, labels_length), tf.data.AUTOTUNE)
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
+
         return dataset
 
     if strategy is None:
-        return dataset_fn()
+        return dataset_fn(None), vocab_size
 
-    return strategy.distribute_datasets_from_function(dataset_fn)
+    return strategy.distribute_datasets_from_function(dataset_fn), vocab_size
 
 
 # config = "../bin/conformer.yaml"
