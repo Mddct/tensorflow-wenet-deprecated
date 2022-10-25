@@ -38,12 +38,13 @@ def compute_fbank(audio,
                  sample_rate=16000)
 
 
-def speed_perturb(waveform, sr, speeds=tf.constant([0.9, 1, 1.1])):
+def speed_perturb(waveform, sr, speeds):
+    # speed = tf.constant([0.9, 1.0, 1.1], dtype=tf.float32)
     return speed(waveform, sr, speeds)
 
 
 def spec_trim(feats, max_t=20):
-    """ Trim tailing frames. 
+    """ Trim tailing frames.
         ref: Rapid-U2++ [arxiv link]
         Args:
         Returns

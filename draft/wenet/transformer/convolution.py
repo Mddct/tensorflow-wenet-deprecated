@@ -3,7 +3,6 @@
 from typing import Optional, Tuple
 
 import tensorflow as tf
-from tensorflow.python import train
 from wenet.transformer.activations import ActivationLayer
 
 
@@ -140,9 +139,3 @@ class ConvolutionModule(tf.keras.layers.Layer):
         x = x + input
         x = tf.where(mask_pad, x, 0.0)
         return x, cache
-
-
-# conv = ConvolutionModule(5, 15, causal=False)
-# mask = tf.sequence_mask([3], maxlen=10)
-# mask = tf.expand_dims(mask, 2)
-# print(conv(tf.ones([1, 10, 5], dtype=tf.float32), mask, training=True))

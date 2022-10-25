@@ -1,7 +1,7 @@
 import tensorflow as tf
 from wenet.transformer.asr_model import ASRModel
 from wenet.transformer.cmvn import GlobalCMVN
-from wenet.transformer.ctc import CTC
+from wenet.transformer.ctc import CTCDense
 from wenet.transformer.decoder import BiTransformerDecoder, TransformerDecoder
 from wenet.transformer.encoder import ConformerEncoder, TransformerEncoder
 from wenet.utils.cmvn import load_cmvn
@@ -41,9 +41,9 @@ def init_model(configs):
             assert configs['decoder_conf']['r_num_blocks'] > 0
             decoder = BiTransformerDecoder(vocab_size, encoder.output_size(),
                                            **configs['decoder_conf'])
-    ctc = None
+    ctc_dense = None
     if ctc_weight != 0.0:
-        ctc = CTC(vocab_size, encoder.output_size())
+        ctc_dense = CTCDense(vocab_size, encoder.output_size())
 
     # Init joint CTC/Attention or Transducer model
     if 'predictor' in configs:
@@ -52,6 +52,6 @@ def init_model(configs):
         model = ASRModel(vocab_size=vocab_size,
                          encoder=encoder,
                          decoder=decoder,
-                         ctc=ctc,
+                         ctcdense=ctc_dense,
                          **configs['model_conf'])
     return model

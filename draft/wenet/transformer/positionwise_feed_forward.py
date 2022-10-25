@@ -15,20 +15,30 @@ class PositionwiseFeedForward(tf.keras.layers.Layer):
         activation (tf.keras.layers.Layer Module): Activation function
     """
 
-    def __init__(self,
-                 idim: int,
-                 hidden_units: int,
-                 dropout_rate: float,
-                 activation: str = 'relu'):
+    def __init__(
+            self,
+            idim: int,
+            hidden_units: int,
+            dropout_rate: float,
+            activation: str = 'relu',
+            bias_regularizer=tf.keras.regularizers.l2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+    ):
         """Construct a PositionwiseFeedForward object."""
         super(PositionwiseFeedForward, self).__init__()
 
         self.out = tf.keras.Sequential([
             tf.keras.layers.Input(shape=[None, idim]),
-            tf.keras.layers.Dense(hidden_units),
+            tf.keras.layers.Dense(
+                hidden_units,
+                bias_regularizer=bias_regularizer,
+                kernel_regularizer=kernel_regularizer,
+            ),
             ActivationLayer(name=activation),
             tf.keras.layers.Dropout(dropout_rate),
-            tf.keras.layers.Dense(idim)
+            tf.keras.layers.Dense(idim,
+                                  bias_regularizer=bias_regularizer,
+                                  kernel_regularizer=kernel_regularizer),
         ])
 
     def call(self, xs: tf.Tensor, training=True) -> tf.Tensor:

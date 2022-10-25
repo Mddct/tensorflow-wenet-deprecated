@@ -1,5 +1,4 @@
 import tensorflow as tf
-import tensorflow_io as tfio
 from wenet.tfaudio.cc.ops import gen_x_op
 from wenet.tfaudio.python.resample import eager_resample
 
@@ -63,7 +62,7 @@ def speed_fn_v3(waveform: tf.Tensor, sr: tf.Tensor,
         return waveform
     resample_rate = tf.cast(tf.cast(sr, dtype=tf.float32) * speed,
                             dtype=tf.int32)
-    return tfio.audio.resample(sr, tf.cast(sr, tf.int64),
+    return tfio.audio.resample(waveform, tf.cast(sr, tf.int64),
                                tf.cast(resample_rate, tf.int64))
 
 

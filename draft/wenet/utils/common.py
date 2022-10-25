@@ -1,6 +1,7 @@
 from typing import Tuple
 
 import tensorflow as tf
+import math
 
 IGNORE_ID = -1
 
@@ -113,20 +114,72 @@ def label_smoothing_loss(y_true,
                          padding_idx,
                          smoothing,
                          reduction=None):
+    #TODO: reduction
+    _ = reduction
     low_confidence = smoothing / (size - 1)
     confidence = 1 - smoothing
 
-    ignore = tf.expand_dims(y_true == padding_idx, axis=2)  # [B, L, 1]
+    keep = tf.expand_dims(y_true != padding_idx, axis=2)  # [B, L, 1]
     y_true = tf.one_hot(
         y_true,
         depth=size,
         on_value=confidence,
         off_value=low_confidence,
     )  # [B, L, V]
-    y_pred = tf.nn.log_softmax(y_pred)
-    output = y_true * tf.exp(y_true - y_pred)  # [B, L, V]
-    output = tf.where(ignore, 0, output)  # [B, L, V]
+    log_y_true = tf.math.log(y_true)
+    y_pred = tf.nn.log_softmax(y_pred, axis=-1)
+    output = y_true * (log_y_true - y_pred)  # [B, L, V]
+
+    output = tf.cast(keep, dtype=output.dtype) * output  # [B, L, V]
     output = tf.reduce_sum(tf.reduce_sum(output, axis=-1), axis=-1)  # [B]
 
     # NOTE: distributed strateggy need sum average all global size
     return output
+
+
+# def clone_initializer(initializer):
+#     # Keras initializer is going to be stateless, which mean reusing the same
+#     # initializer will produce same init value when the shapes are the same.
+#     if isinstance(initializer, tf.keras.initializers.Initializer):
+#         return initializer.__class__.from_config(initializer.get_config())
+#     # When the input is string/dict or other serialized configs, caller will
+#     # create a new keras Initializer instance based on that, and we don't need to
+#     # do anything
+#     return initializer
+
+
+def GetFanInFanOut(shape):
+
+    if len(shape) < 1:  # Just to avoid errors for constants.
+        fan_in = fan_out = 1
+    elif len(shape) == 1:
+        fan_in = fan_out = shape[0]
+    elif len(shape) == 2:
+        fan_in = shape[0]
+        fan_out = shape[1]
+    else:
+        # Assuming convolution kernels (2D, 3D, or more).
+        # kernel shape: (..., input_depth, depth)
+        receptive_field_size = 1
+        for dim in shape[:-2]:
+            receptive_field_size *= dim
+        fan_in = shape[-2] * receptive_field_size
+        fan_out = shape[-1] * receptive_field_size
+    return fan_in, fan_out
+
+
+def XavierUniform(shape, dtype, scale=1.0, method='xavier', seed=None):
+    """Xavier initialization (x = sqrt(6. / (in + out)); scale*[-x, x])."""
+    if not shape:
+        raise ValueError(
+            '\'shape\' must not be \'None\' or 0 for XavierUniform')
+    fan_in, fan_out = GetFanInFanOut(shape)
+    if method == 'xavier':
+        limit = math.sqrt(6. / (fan_in + fan_out))
+    else:
+        assert method == 'geo_mean_xavier'
+        limit = math.sqrt(3. / math.sqrt(fan_in * fan_out))
+    # return scale * tf.random.uniform(shape, -limit, limit, dtype, seed=seed)
+    return tf.keras.initializers.RandomUniform(minval=-limit,
+                                               maxval=limit,
+                                               seed=seed)

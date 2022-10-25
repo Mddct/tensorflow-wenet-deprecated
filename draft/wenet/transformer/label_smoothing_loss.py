@@ -42,7 +42,7 @@ class LabelSmoothingLoss(tf.keras.losses.Loss):
             off_value=self.low_confidence,
         )  # [B, L, V]
         log_y_true = tf.math.log(y_true)
-        y_pred = tf.nn.log_softmax(y_pred)
+        y_pred = tf.nn.log_softmax(y_pred, axis=-1)
         output = y_true * (log_y_true - y_pred)  # [B, L, V]
 
         output = tf.cast(ignore, dtype=output.dtype) * output  # [B, L, V]

@@ -7,9 +7,9 @@ def subsequent_mask(size: tf.Tensor) -> tf.Tensor:
 
 
 def subsequent_chunk_mask(
-        size: tf.Tensor,
-        chunk_size: tf.Tensor,
-        num_left_chunks: tf.Tensor = tf.constant(-1, dtype=tf.int32),
+    size: tf.Tensor,
+    chunk_size: tf.Tensor,
+    num_left_chunks: tf.Tensor,
 ):
 
     index = tf.range(0, size)

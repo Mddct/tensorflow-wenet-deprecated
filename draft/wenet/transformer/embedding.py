@@ -6,21 +6,35 @@ from typing import Tuple
 import numpy as np
 import tensorflow as tf
 
+# def positional_encoding(length, depth):
+#     depth = depth // 2
+
+#     positions = np.arange(length)[:, np.newaxis]  # (seq, 1)
+#     depths = np.arange(depth)[np.newaxis, :] / depth  # (1, depth)
+#     angle_rads = positions * np.exp(depths * (-math.log(10000.0)))
+
+#     pos_encoding = np.concatenate(
+#         [np.sin(angle_rads), np.cos(angle_rads)], axis=-1)
+
+#     pos_encoding = np.reshape(
+#         np.transpose(np.reshape(pos_encoding, [length, 2, depth]), [0, 2, 1]),
+#         [length, -1])  # [B, T]
+#     return tf.cast(pos_encoding, dtype=tf.float32)
+
 
 def positional_encoding(length, depth):
     depth = depth / 2
 
     positions = np.arange(length)[:, np.newaxis]  # (seq, 1)
     depths = np.arange(depth)[np.newaxis, :] / depth  # (1, depth)
-    angle_rads = positions * np.exp(depths * (-math.log(10000.0)))
+
+    angle_rates = 1 / (10000**depths)  # (1, depth)
+    angle_rads = positions * angle_rates  # (pos, depth)
 
     pos_encoding = np.concatenate(
         [np.sin(angle_rads), np.cos(angle_rads)], axis=-1)
 
-    pos_encoding = tf.cast(pos_encoding, dtype=tf.float32)
-    pos_encoding = tf.transpose(tf.reshape(pos_encoding, [length, 2, depth]),
-                                [0, 2, 1])  # [B, T, 2]
-    return tf.reshape(pos_encoding, [length, -1])
+    return tf.cast(pos_encoding, dtype=tf.float32)
 
 
 class PositionalEncoding(tf.keras.layers.Layer):
@@ -127,7 +141,7 @@ class RelPositionalEncoding(PositionalEncoding):
             offset (tf.Tensor): [B]
         Returns:
             tf.Tensor: Encoded tensor (batch, time, `*`).
-            tf..Tensor: Positional embedding tensor (1, time, `*`).
+            tf.Tensor: Positional embedding tensor (1, time, `*`).
         """
         x = x * self.xscale
         pos_emb = self.position_encoding(offset,

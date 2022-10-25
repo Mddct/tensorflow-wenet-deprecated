@@ -2,15 +2,17 @@ import tensorflow as tf
 from typeguard import check_argument_types
 
 
-class CTC(tf.keras.layers.Layer):
+class CTCDense(tf.keras.layers.Layer):
     """CTC module"""
 
     def __init__(
-        self,
-        odim: int,
-        encoder_output_size: int,
-        dropout_rate: float = 0.0,
-        reduce: bool = True,
+            self,
+            odim: int,
+            encoder_output_size: int,
+            dropout_rate: float = 0.0,
+            reduce: bool = True,
+            bias_regularizer=tf.keras.regularizers.l2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
     ):
         """ Construct CTC module
         Args:
@@ -25,40 +27,37 @@ class CTC(tf.keras.layers.Layer):
         self.ctc_lo = tf.keras.Sequential([
             tf.keras.layers.Dropout(rate=dropout_rate),
             tf.keras.Input(shape=[None, eprojs]),
-            tf.keras.layers.Dense(odim)
+            tf.keras.layers.Dense(
+                odim,
+                bias_regularizer=bias_regularizer,
+                kernel_regularizer=kernel_regularizer,
+            )
         ])
 
-        reduction_type = "sum" if reduce else "none"
+        # reduction_type = "sum" if reduce else "none"
 
-    def call(self,
-             hs_pad: tf.Tensor,
-             hlens: tf.Tensor,
-             ys_pad: tf.Tensor,
-             ys_lens: tf.Tensor,
-             training: bool = True) -> tf.Tensor:
+    def call(self, hs_pad: tf.Tensor, training: bool = True) -> tf.Tensor:
         """Calculate CTC loss.
         Args:
             hs_pad: batch of padded hidden state sequences (B, Tmax, D)
-            hlens: batch of lengths of hidden state sequences (B)
-            ys_pad: batch of padded character id sequence tensor (B, Lmax)
-            ys_lens: batch of lengths of character sequence (B)
         Returns:
-            loss_ctc: [batch]
+            ys_hat : [batch, odim]
         """
         # hs_pad: (B, L, NProj) -> ys_hat: (B, L, Nvocab)
         ys_hat = self.ctc_lo(hs_pad, training=training)
+        return ys_hat
         # ys_hat: (B, L, D) -> (L, B, D)
         # ys_hat = tf.nn.log_softmax(ys_hat, axis=2)
-        loss = tf.nn.ctc_loss(
-            ys_pad,
-            ys_hat,
-            ys_lens,
-            hlens,
-            logits_time_major=False,
-            blank_index=0,  # wenet default blank is 0
-        )
+        # loss = tf.nn.ctc_loss(
+        #     ys_pad,
+        #     ys_hat,
+        #     ys_lens,
+        #     hlens,
+        #     logits_time_major=False,
+        #     blank_index=0,  # wenet default blank is 0
+        # )
 
-        return loss
+        # return loss
 
     def log_softmax(self,
                     hs_pad: tf.Tensor,

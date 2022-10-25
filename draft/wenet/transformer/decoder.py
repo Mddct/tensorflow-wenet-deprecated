@@ -82,7 +82,11 @@ class TransformerDecoder(tf.keras.layers.Layer):
         if output_layer_share_weights:
             self.output_layer = self.look_up
         else:
-            self.output_layer = tf.keras.layers.Dense(vocab_size)
+            self.output_layer = tf.keras.layers.Dense(
+                vocab_size,
+                kernel_regularizer=kernel_regularizer,
+                bias_regularizer=bias_regularizer,
+            )
 
         self.num_blocks = num_blocks
         self.decoders = [

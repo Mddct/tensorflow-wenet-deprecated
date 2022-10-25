@@ -47,12 +47,12 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
         self.norm1 = tf.keras.layers.LayerNormalization(
             gamma_regularizer=kernel_regularizer,
             beta_regularizer=bias_regularizer,
-            epsilon=1e-5,
+            epsilon=1e-6,
         )
         self.norm2 = tf.keras.layers.LayerNormalization(
             gamma_regularizer=kernel_regularizer,
             beta_regularizer=bias_regularizer,
-            epsilon=1e-5,
+            epsilon=1e-6,
         )
 
         self.dropout = tf.keras.layers.Dropout(dropout_rate,
@@ -61,7 +61,11 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
         self.normalize_before = normalize_before
         self.concat_after = concat_after
         if concat_after:
-            self.concat_linear = tf.keras.layers.Dense(size)
+            self.concat_linear = tf.keras.layers.Dense(
+                size,
+                kernel_regularizer=kernel_regularizer,
+                bias_regularizer=bias_regularizer,
+            )
         # else:
         # self.concat_linear = nn.Identity()
 
@@ -214,10 +218,11 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
         self.normalize_before = normalize_before
         self.concat_after = concat_after
         if self.concat_after:
-            # self.concat_linear = nn.Linear(size + size, size)
-            self.concat_linear = tf.keras.layers.Dense(size)
-        # else:
-        #     self.concat_linear = nn.Identity()
+            self.concat_linear = tf.keras.layers.Dense(
+                size,
+                kernel_regularizer=kernel_regularizer,
+                bias_regularizer=bias_regularizer,
+            )
 
     def call(
         self,

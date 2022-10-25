@@ -9,13 +9,12 @@ class AsrTrainer(orbit.StandardTrainer):
                  model,
                  optimizer,
                  global_batch_size,
-                 strategy=tf.distribute.MirroredStrategy,
+                 strategy: tf.distribute.Strategy,
                  metrics=None,
                  traininer_options=None) -> None:
 
         self.strategy = strategy
         with self.strategy.scope():
-            # NOTE: loss_fn == None, model.call will return loss
             self.optimizer = optimizer
             self.model = model
             self.global_step = self.optimizer.iterations
@@ -29,6 +28,8 @@ class AsrTrainer(orbit.StandardTrainer):
         else:
             self.metrics = {'loss': metrics}
 
+        self.batch_steps = tf.Variable(0, dtype=tf.float32)
+
         super(AsrTrainer, self).__init__(
             train_dataset=train_dataset,
             options=traininer_options,
@@ -41,36 +42,49 @@ class AsrTrainer(orbit.StandardTrainer):
     def train_step(self, iterator):
 
         def train_fn(inputs):
+
             with tf.GradientTape() as tape:
                 feats, feats_length, labels, labels_length = inputs
-                loss_dict = self.model(
-                    feats,
-                    feats_length,
+                labels = tf.cast(labels, dtype=tf.int32)
+                labels_length = tf.cast(labels_length, dtype=tf.int32)
+                encoder_out, encoder_out_lens, decoder_out, ys_out_pad, r_decoder_out, r_ys_out_pad = self.model(
+                    feats, feats_length, labels, labels_length)
+                loss_dict = self.model.compute_loss(
+                    encoder_out,
+                    encoder_out_lens,
                     labels,
                     labels_length,
-                    training=True,
+                    decoder_out,
+                    ys_out_pad,
+                    r_decoder_out,
+                    r_ys_out_pad,
                 )
-                loss_dict = self.model(feats, feats_length, labels,
-                                       labels_length)
-                gradients = tape.gradient(
-                    tf.reduce_sum(loss_dict['loss']) / self.global_batch_size,
-                    self.model.trainable_variables)
+                loss = tf.reduce_sum(
+                    loss_dict['loss']) / self.global_batch_size
+                # regularization loss
+                regularization_loss = tf.add_n(self.model.losses)
+                loss = loss + tf.nn.scale_regularization_loss(
+                    regularization_loss)
+
+                gradients = tape.gradient(loss, self.model.trainable_variables)
                 self.optimizer.apply_gradients(
                     list(zip(gradients, self.model.trainable_variables)))
-                # Update metrics
+
                 for name in self.metrics.keys():
                     self.metrics[name].update_state(
-                        tf.reduce_sum(
-                            tf.reduce_sum(loss_dict[name]) /
-                            self.global_batch_size))
+                        tf.reduce_sum(loss_dict[name]) /
+                        self.global_batch_size)
 
         self.strategy.run(train_fn, args=(next(iterator), ))
 
+        self.batch_steps.assign_add(1.0)
+
     def train_loop_end(self):
+
         with self.strategy.scope():
             # Export the metrics.
             metrics = {
-                name: metric.result()
+                name: metric.result() / self.batch_steps
                 for name, metric in self.metrics.items()
             }
             if isinstance(self.optimizer.lr,
@@ -80,52 +94,10 @@ class AsrTrainer(orbit.StandardTrainer):
                 current_lr = self.optimizer.lr
             metrics['learnint_rate'] = current_lr
 
+        self.batch_steps.assign(0)
+
         return metrics
 
-
-# @tf.function(experimental_relax_shapes=True)
-# def train_step(iterator, dist_model, optimizer, global_batch_size, strategy):
-#     """Training step function."""
-
-#     def step_fn(inputs):
-#         """Per-Replica step function."""
-#         feats, feats_length, labels, labels_length = inputs
-#         with tf.GradientTape() as tape:
-#             loss_dict = dist_model(feats, feats_length, labels, labels_length)
-#             train_loss = tf.reduce_sum(loss_dict['loss']) / global_batch_size
-#             grads = tape.gradient(train_loss, dist_model.trainable_variables)
-#             optimizer.apply_gradients(
-#                 zip(grads, dist_model.trainable_variables))
-
-#             loss_ctc = None
-#             if loss_dict['loss_ctc'] is not None:
-#                 loss_ctc = tf.reduce_sum(
-#                     loss_dict['loss_ctc']) / global_batch_size
-#             loss_att = None
-#             if loss_dict['loss_att'] is not None:
-#                 loss_att = tf.reduce_sum(
-#                     loss_dict['loss_att']) / global_batch_size
-
-#         return {'loss': train_loss, 'loss_ctc': loss_ctc, 'loss_att': loss_att}
-
-#     per_replica_losses_dict = strategy.run(step_fn, args=(next(iterator), ))
-
-#     return {
-#         'loss':
-#         strategy.reduce(tf.distribute.ReduceOp.SUM,
-#                         per_replica_losses_dict['loss'],
-#                         axis=None),
-#         'loss_ctc':
-#         strategy.reduce(tf.distribute.ReduceOp.SUM,
-#                         per_replica_losses_dict['loss_ctc'],
-#                         axis=None)
-#         if per_replica_losses_dict['loss_ctc'] is not None else None,
-#         'loss_att':
-#         strategy.reduce(tf.distribute.ReduceOp.SUM,
-#                         per_replica_losses_dict['loss_att'],
-#                         axis=None)
-#         if per_replica_losses_dict['loss_att'] is not None else None,
-#     }
 
 # def train(
 #         model,

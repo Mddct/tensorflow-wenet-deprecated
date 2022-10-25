@@ -64,8 +64,16 @@ class DecoderLayer(tf.keras.layers.Layer):
         self.concat_after = concat_after
         if self.concat_after:
             # [size+size, size]
-            self.concat_linear1 = tf.keras.layers.Dense(size)
-            self.concat_linear2 = tf.keras.layers.Dense(size)
+            self.concat_linear1 = tf.keras.layers.Dense(
+                size,
+                kernel_regularizer=kernel_regularizer,
+                bias_regularizer=bias_regularizer,
+            )
+            self.concat_linear2 = tf.keras.layers.Dense(
+                size,
+                kernel_regularizer=kernel_regularizer,
+                bias_regularizer=bias_regularizer,
+            )
 
     def call(
         self,

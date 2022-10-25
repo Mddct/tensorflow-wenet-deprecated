@@ -29,14 +29,29 @@ class LinearNoSubsampling(BaseSubsampling):
         odim (int): Output dimension.
     """
 
-    def __init__(self, idim: int, odim: int, dropout_rate: float,
-                 pos_enc_class: tf.keras.layers.Layer):
+    def __init__(
+            self,
+            idim: int,
+            odim: int,
+            dropout_rate: float,
+            pos_enc_class: tf.keras.layers.Layer,
+            bias_regularizer=tf.keras.regularizers.l2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+    ):
         """Construct an linear object."""
         super().__init__()
         self.out = tf.keras.Sequential([
             tf.keras.layers.Input(shape=[None, idim, 1]),
-            tf.keras.layers.Dense(odim),
-            tf.keras.layers.LayerNormalization(epsilon=1e-5),
+            tf.keras.layers.Dense(
+                odim,
+                bias_regularizer=bias_regularizer,
+                kernel_regularizer=kernel_regularizer,
+            ),
+            tf.keras.layers.LayerNormalization(
+                epsilon=1e-6,
+                beta_regularizer=kernel_regularizer,
+                gamma_regularizer=kernel_regularizer,
+            ),
             tf.keras.layers.Dropout(dropout_rate),
         ])
 
@@ -75,22 +90,45 @@ class Conv2dSubsampling4(BaseSubsampling):
         dropout_rate (float): Dropout rate.
     """
 
-    def __init__(self, idim: int, odim: int, dropout_rate: float,
-                 pos_enc_class: tf.keras.layers.Layer):
+    def __init__(
+            self,
+            idim: int,
+            odim: int,
+            dropout_rate: float,
+            pos_enc_class: tf.keras.layers.Layer,
+            bias_regularizer=tf.keras.regularizers.l2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+    ):
         """Construct an Conv2dSubsampling4 object."""
         super().__init__()
         self.conv = tf.keras.Sequential([
             tf.keras.layers.Input(shape=[None, idim, 1]),
-            tf.keras.layers.Conv2D(filters=odim, strides=2, kernel_size=3),
+            tf.keras.layers.Conv2D(
+                filters=odim,
+                strides=2,
+                kernel_size=3,
+                bias_regularizer=bias_regularizer,
+                kernel_regularizer=kernel_regularizer,
+            ),
             ActivationLayer('relu'),
-            tf.keras.layers.Conv2D(filters=odim, strides=2, kernel_size=3),
+            tf.keras.layers.Conv2D(
+                filters=odim,
+                strides=2,
+                kernel_size=3,
+                bias_regularizer=bias_regularizer,
+                kernel_regularizer=kernel_regularizer,
+            ),
             ActivationLayer('relu'),
         ])
 
         # torch.nn.Conv2d(1, odim, 3, 2),
         # torch.nn.Conv2d(odim, odim, 3, 2),
         # input dim should  == odim * (((idim - 1) // 2 - 1) // 2)
-        self.out = tf.keras.layers.Dense(odim)
+        self.out = tf.keras.layers.Dense(
+            odim,
+            bias_regularizer=bias_regularizer,
+            kernel_regularizer=kernel_regularizer,
+        )
         self.pos_enc = pos_enc_class
         # The right context for every conv layer is computed by:
         # (kernel_size - 1) * frame_rate_of_this_layer
@@ -138,19 +176,42 @@ class Conv2dSubsampling6(BaseSubsampling):
         pos_enc (tf.keras.layers.Layer): Custom position encoding layer.
     """
 
-    def __init__(self, idim: int, odim: int, dropout_rate: float,
-                 pos_enc_class: tf.keras.layers.Layer):
+    def __init__(
+            self,
+            idim: int,
+            odim: int,
+            dropout_rate: float,
+            pos_enc_class: tf.keras.layers.Layer,
+            bias_regularizer=tf.keras.regularizers.l2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+    ):
         """Construct an Conv2dSubsampling6 object."""
         super().__init__()
         self.conv = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(None, idim, 1)),
-            tf.keras.layers.Conv2D(odim, 3, 2),
+            tf.keras.layers.Conv2D(
+                odim,
+                3,
+                2,
+                bias_regularizer=bias_regularizer,
+                kernel_regularizer=kernel_regularizer,
+            ),
             ActivationLayer('relu'),
-            tf.keras.layers.Conv2D(odim, 5, 3),
+            tf.keras.layers.Conv2D(
+                odim,
+                5,
+                3,
+                bias_regularizer=bias_regularizer,
+                kernel_regularizer=kernel_regularizer,
+            ),
             ActivationLayer('relu')
         ])
         # input shape:  odim * ((idim-1)//2-2//3)
-        self.out = tf.keras.layers.Dense(odim)
+        self.out = tf.keras.layers.Dense(
+            odim,
+            kernel_regularizer=kernel_regularizer,
+            bias_regularizer=bias_regularizer,
+        )
         self.pos_enc = pos_enc_class
         # 10 = (3 - 1) * 1 + (5 - 1) * 2
         self.subsampling_rate = 6
@@ -195,22 +256,51 @@ class Conv2dSubsampling8(BaseSubsampling):
         dropout_rate (float): Dropout rate.
     """
 
-    def __init__(self, idim: int, odim: int, dropout_rate: float,
-                 pos_enc_class: tf.keras.layers.Layer):
+    def __init__(
+            self,
+            idim: int,
+            odim: int,
+            dropout_rate: float,
+            pos_enc_class: tf.keras.layers.Layer,
+            bias_regularizer=tf.keras.regularizers.l2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+    ):
         """Construct an Conv2dSubsampling8 object."""
         super().__init__()
         self.conv = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(None, idim, 1)),
-            tf.keras.layers.Conv2D(odim, 3, 2),
+            tf.keras.layers.Conv2D(
+                odim,
+                3,
+                2,
+                kernel_regularizer=kernel_regularizer,
+                bias_regularizer=bias_regularizer,
+            ),
             ActivationLayer('relu'),
-            tf.keras.layers.Conv2D(odim, 3, 2),
+            tf.keras.layers.Conv2D(
+                odim,
+                3,
+                2,
+                kernel_regularizer=kernel_regularizer,
+                bias_regularizer=bias_regularizer,
+            ),
             ActivationLayer('relu'),
-            tf.keras.layers.Conv2D(odim, 3, 2),
+            tf.keras.layers.Conv2D(
+                odim,
+                3,
+                2,
+                kernel_regularizer=kernel_regularizer,
+                bias_regularizer=bias_regularizer,
+            ),
             ActivationLayer('relu'),
         ])
 
         # input shape: odim * ((((idim - 1) // 2 - 1) // 2 - 1) // 2
-        self.out = tf.keras.layers.Dense(odim)
+        self.out = tf.keras.layers.Dense(
+            odim,
+            kernel_regularizer=kernel_regularizer,
+            bias_regularizer=bias_regularizer,
+        )
         self.pos_enc = pos_enc_class
         self.subsampling_rate = 8
         # 14 = (3 - 1) * 1 + (3 - 1) * 2 + (3 - 1) * 4

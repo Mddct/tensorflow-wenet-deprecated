@@ -8,7 +8,7 @@ from wenet.dataset.dataset import Dataset
 from wenet.utils.executor import AsrTrainer
 from wenet.utils.file_utils import distributed_write_filepath, is_chief
 from wenet.utils.init_model import init_model
-from wenet.utils.scheduler import WarmupLR
+from wenet.utils.scheduler import TransformerLearningRateSchedule
 
 FLAGS = flags.FLAGS
 
@@ -102,9 +102,11 @@ def main(argv):
         model = init_model(configs)
 
         # scheduler
-        learning_rate = WarmupLR(
-            configs['scheduler_conf']['warmup_steps'],
+        learning_rate = TransformerLearningRateSchedule(
             configs['optim_conf']['lr'],
+            # TODO
+            256.0,
+            configs['scheduler_conf']['warmup_steps'],
         )
         optimizer = tf.keras.optimizers.Adam(
             learning_rate,
@@ -115,13 +117,13 @@ def main(argv):
         )
         # metrics
         # TODO: wer metrics
-        metrics = {'loss': tf.keras.metrics.Mean('loss', dtype=tf.float32)}
+        metrics = {'loss': tf.keras.metrics.Sum('loss', dtype=tf.float32)}
         if ctc_weight != 0.0:
-            metrics['loss_ctc'] = tf.keras.metrics.Mean('loss_ctc',
-                                                        dtype=tf.float32)
+            metrics['loss_ctc'] = tf.keras.metrics.Sum('loss_ctc',
+                                                       dtype=tf.float32)
         if ctc_weight != 1.0:
-            metrics['loss_att'] = tf.keras.metrics.Mean('loss_att',
-                                                        dtype=tf.float32)
+            metrics['loss_att'] = tf.keras.metrics.Sum('loss_att',
+                                                       dtype=tf.float32)
         # checkpoint
         checkpoint_dir = distributed_write_filepath(FLAGS.model_dir, strategy)
         checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)

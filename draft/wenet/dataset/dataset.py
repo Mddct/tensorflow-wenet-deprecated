@@ -1,17 +1,8 @@
+from typing import Optional
 import tensorflow as tf
 import wenet.dataset.processor as processor
 from wenet.tfaudio import SpectrumAugmenter
 from wenet.utils.file_utils import read_symbol_table
-
-# communication_options = tf.distribute.experimental.CommunicationOptions(
-#     implementation=tf.distribute.experimental.CommunicationImplementation.NCCL)
-
-# strategy = tf.distribute.MultiWorkerMirroredStrategy(
-#     communication_options=communication_options)
-
-# strategy = tf.distribute.MirroredStrategy()
-
-# dist_dataset = strategy.distribute_datasets_from_function(dataset_fn)
 
 
 def look_up_table(symbol_table_path):
@@ -35,11 +26,14 @@ def Dataset(
     prefetch=tf.data.AUTOTUNE,
     data_type="shard",
     strategy=None,
+    training: bool = True,
+    cache: bool = False,
+    tf_data_service: Optional[str] = None,
 ):
 
     symbol_table, vocab_size = look_up_table(symbol_table_path)
 
-    def dataset_fn(input_context):
+    def dataset_fn(input_context=None):
         dataset = tf.data.TextLineDataset(data_list_file)
         if data_type == 'shard':
             # eacho shard: dataset element ["shard1.txt", 'shard2.txt'....]
@@ -51,25 +45,24 @@ def Dataset(
             )
             dataset = dataset.apply(tf.data.experimental.ignore_errors())
 
-        if strategy is not None:
+        if strategy is not None and input_context is not None:
             dataset = dataset.shard(input_context.num_input_pipelines,
                                     input_context.input_pipeline_id)
-        # if epochs > 1:
-        #     dataset = dataset.repeat(epochs)
-        dataset = dataset.repeat()
-
         shuffle = conf.get('shuffle', True)
         if shuffle:
             shuffle_conf = conf.get('shuffle_conf', {})
             dataset = dataset.shuffle(buffer_size=shuffle_conf['shuffle_size'],
                                       reshuffle_each_iteration=True)
-
+        if training:
+            dataset = dataset.repeat()
+        if cache:
+            # for small dataset we can cache all raw wav in memory
+            dataset = dataset.cache()
         dataset = dataset.map(
             lambda line: processor.parse_line(line, symbol_table),
             num_parallel_calls=tf.data.AUTOTUNE)
         # file may not found in  parse_line, ignore error
         dataset = dataset.apply(tf.data.experimental.ignore_errors())
-        dataset = dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
         speed_perturb = conf.get('speed_perturb', False)
         if speed_perturb:
@@ -129,6 +122,18 @@ def Dataset(
                  feats_length, labels, labels_length), tf.data.AUTOTUNE)
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
+        if tf_data_service is not None:
+            if not hasattr(tf.data.experimental, 'service'):
+                raise ValueError(
+                    'The tf_data_service flag requires Tensorflow version '
+                    '>= 2.3.0, but the version is {}'.format(tf.__version__))
+            dataset = dataset.apply(
+                tf.data.experimental.service.distribute(
+                    processing_mode='distributed_epoch',
+                    service=tf_data_service,
+                    job_name='wenet_train'))
+            dataset = dataset.prefetch(
+                buffer_size=tf.data.experimental.AUTOTUNE)
         return dataset
 
     if strategy is None:

@@ -1,38 +1,9 @@
 """Multi-Head Attention layer definition."""
 
-import math
 from typing import Optional, Tuple
 
 import tensorflow as tf
-from wenet.utils.common import mask_softmax
-
-
-def GetFanInFanOut(shape):
-
-    num_input_fmaps = shape[1]
-    num_output_fmaps = shape[0]
-    receptive_field_size = 1
-    receptive_field_size = 1
-    if len(shape) > 2:
-        receptive_field_size = tf.math.cumprod(shape[2:])[-1]
-    fan_in = num_input_fmaps * receptive_field_size
-    fan_out = num_output_fmaps * receptive_field_size
-
-    return fan_in, fan_out
-
-
-def XavierUniform(shape, dtype, scale=1.0, method='xavier', seed=None):
-    """Xavier initialization (x = sqrt(6. / (in + out)); scale*[-x, x])."""
-    if not shape:
-        raise ValueError(
-            '\'shape\' must not be \'None\' or 0 for XavierUniform')
-    fan_in, fan_out = GetFanInFanOut(shape)
-    if method == 'xavier':
-        limit = math.sqrt(6. / (fan_in + fan_out))
-    else:
-        assert method == 'geo_mean_xavier'
-        limit = math.sqrt(3. / math.sqrt(fan_in * fan_out))
-    return scale * tf.random.uniform(shape, -limit, limit, dtype, seed=seed)
+from wenet.utils.common import mask_softmax, XavierUniform
 
 
 class MultiHeadedAttention(tf.keras.layers.Layer):
@@ -43,7 +14,14 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         dropout_rate (float): Dropout rate.
     """
 
-    def __init__(self, n_head: int, n_feat: int, dropout_rate: float):
+    def __init__(
+            self,
+            n_head: int,
+            n_feat: int,
+            dropout_rate: float,
+            bias_regularizer=tf.keras.regularizers.l2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+    ):
         """Construct an MultiHeadedAttention object."""
         super().__init__()
         assert n_feat % n_head == 0
@@ -52,10 +30,58 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         self.h = n_head
         self.n_feat = n_feat
 
-        self.linear_q = tf.keras.layers.Dense(n_feat)
-        self.linear_k = tf.keras.layers.Dense(n_feat)
-        self.linear_v = tf.keras.layers.Dense(n_feat)
-        self.linear_out = tf.keras.layers.Dense(n_feat)
+        self.linear_q = tf.keras.layers.Dense(
+            n_feat,
+            kernel_initializer=XavierUniform(
+                shape=[n_feat, n_feat],
+                dtype=tf.float32,
+            ),
+            bias_initializer=XavierUniform(
+                shape=[n_feat],
+                dtype=tf.float32,
+            ),
+            kernel_regularizer=kernel_regularizer,
+            bias_regularizer=bias_regularizer,
+        )
+        self.linear_k = tf.keras.layers.Dense(
+            n_feat,
+            kernel_initializer=XavierUniform(
+                shape=[n_feat, n_feat],
+                dtype=tf.float32,
+            ),
+            bias_initializer=XavierUniform(
+                shape=[n_feat],
+                dtype=tf.float32,
+            ),
+            kernel_regularizer=kernel_regularizer,
+            bias_regularizer=bias_regularizer,
+        )
+        self.linear_v = tf.keras.layers.Dense(
+            n_feat,
+            kernel_initializer=XavierUniform(
+                shape=[n_feat, n_feat],
+                dtype=tf.float32,
+            ),
+            bias_initializer=XavierUniform(
+                shape=[n_feat],
+                dtype=tf.float32,
+            ),
+            kernel_regularizer=kernel_regularizer,
+            bias_regularizer=bias_regularizer,
+        )
+        self.linear_out = tf.keras.layers.Dense(
+            n_feat,
+            kernel_initializer=XavierUniform(
+                shape=[n_feat, n_feat],
+                dtype=tf.float32,
+            ),
+            bias_initializer=XavierUniform(
+                shape=[n_feat],
+                dtype=tf.float32,
+            ),
+            kernel_regularizer=kernel_regularizer,
+            bias_regularizer=bias_regularizer,
+        )
         self.dropout = tf.keras.layers.Dropout(rate=dropout_rate)
 
     def forward_qkv(
@@ -192,21 +218,36 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         dropout_rate (float): Dropout rate.
     """
 
-    def __init__(self, n_head, n_feat, dropout_rate):
+    def __init__(
+            self,
+            n_head,
+            n_feat,
+            dropout_rate,
+            bias_regularizer=tf.keras.regularizers.l2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+    ):
         """Construct an RelPositionMultiHeadedAttention object."""
         super().__init__(n_head, n_feat, dropout_rate)
         # linear transformation for positional encoding
-        self.linear_pos = tf.keras.layers.Dense(n_feat)
-        self.pos_bias_u = tf.Variable(
-            initial_value=XavierUniform(shape=[self.h, self.d_k],
-                                        dtype=tf.float32),
-            trainable=True,
+        self.linear_pos = tf.keras.layers.Dense(
+            n_feat,
+            kernel_initializer=XavierUniform(
+                shape=[n_feat, n_feat],  # TODO: move to build , not here
+                dtype=tf.float32,
+            ),
+            bias_initializer=XavierUniform(
+                shape=[n_feat],
+                dtype=tf.float32,
+            ),
+            kernel_regularizer=kernel_regularizer,
+            bias_regularizer=bias_regularizer,
         )
-        self.pos_bias_v = tf.Variable(
-            initial_value=XavierUniform(shape=[self.h, self.d_k],
-                                        dtype=tf.float32),
-            trainable=True,
-        )
+        self.pos_bias_u = self.add_weight(initializer=XavierUniform(
+            shape=[self.h, self.d_k], dtype=tf.float32),
+                                          regularizer=bias_regularizer)
+        self.pos_bias_v = self.add_weight(initializer=XavierUniform(
+            shape=[self.h, self.d_k], dtype=tf.float32),
+                                          regularizer=bias_regularizer)
 
     def rel_shift_(self, x, zero_triu: bool = False):
         x_size = tf.shape(x)
