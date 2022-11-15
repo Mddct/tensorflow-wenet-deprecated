@@ -39,30 +39,25 @@ class ASRModel(tf.keras.Model):
         if self.ctc_weight != 0:
             self.ctc_dense = ctcdense
 
-    @tf.function(input_signature=[
-        tf.TensorSpec(shape=[None, None, 80], dtype=tf.float32),
-        tf.TensorSpec(shape=[None], dtype=tf.int32),
-        tf.TensorSpec(shape=[None, None], dtype=tf.int32),
-        tf.TensorSpec(shape=[None], dtype=tf.int32),
-    ])
     def call(
         self,
-        speech: tf.Tensor,
-        speech_lengths: tf.Tensor,
-        text: tf.Tensor,
-        text_lengths: tf.Tensor,
+        inputs,
     ):
         """Frontend + Encoder + Decoder + Calc loss
         Args:
-            speech: (Batch, Length, ...)
-            speech_lengths: (Batch, )
-            text: (Batch, Length)
-            text_lengths: (Batch,)
+            inputs:
+                speech: (Batch, Length, ...)
+                speech_lengths: (Batch, )
+                text: (Batch, Length)
+                text_lengths: (Batch,)
         """
 
+        speech, speech_lengths, text, text_lengths = inputs
         # 1. Encoder
-
-        encoder_out, encoder_mask = self.encoder(speech, speech_lengths)
+        speech_mask = tf.expand_dims(tf.sequence_mask(speech_lengths),
+                                     axis=2)  # (B, T, 1)
+        encoder_out, encoder_mask = self.encoder(inputs=speech,
+                                                 mask=speech_mask)
         encoder_out_lens = tf.reduce_sum(tf.cast(tf.squeeze(encoder_mask,
                                                             axis=1),
                                                  dtype=text_lengths.dtype),
@@ -140,9 +135,9 @@ class ASRModel(tf.keras.Model):
                 loss_att = loss_att * (
                     1 - self.reverse_weight) + r_loss_att * self.reverse_weight
         loss = None
-        if loss_ctc is None:
+        if self.ctc_weight == 0.0:
             loss = loss_att
-        elif loss_att is None:
+        elif self.ctc_weight == 1.0:
             loss = loss_ctc
         else:
             loss = self.ctc_weight * loss_ctc + (1 -

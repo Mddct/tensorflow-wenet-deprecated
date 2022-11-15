@@ -1,6 +1,6 @@
 """Subsampling layer definition."""
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 import tensorflow as tf
 from wenet.transformer.activations import ActivationLayer
@@ -61,25 +61,27 @@ class LinearNoSubsampling(BaseSubsampling):
 
     def call(
         self,
-        x: tf.Tensor,
-        x_mask: tf.Tensor,
-        offset: tf.Tensor,
+        inputs: tf.Tensor,
+        mask: Optional[tf.Tensor] = None,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         """Input x.
         Args:
-            x (tf.Tensor): Input tensor (#batch, time, idim).
-            x_mask (tf.Tensor): Input mask (#batch, time, 1).
+            inputs:
+                x (tf.Tensor): Input tensor (#batch, time, idim).
+                offset(tf.Tensor):
+            mask (tf.Tensor): Input mask (#batch, time, 1).
         Returns:
             tf.Tensor: linear input tensor (#batch, time', odim),
                 where time' = time .
             tf.Tensor: linear input mask (#batch, time', 1),
                 where time' = time .
         """
+        x, offset = inputs
         x = self.out(x)
         x = self.dropout(x, training=training)
-        x, pos_emb = self.pos_enc(x, offset, training=training)
-        return x, pos_emb, x_mask
+        x, pos_emb = self.pos_enc((x, offset), training=training)
+        return x, pos_emb, mask
 
 
 class Conv2dSubsampling4(BaseSubsampling):
@@ -138,15 +140,15 @@ class Conv2dSubsampling4(BaseSubsampling):
 
     def call(
         self,
-        x: tf.Tensor,
-        x_mask: tf.Tensor,
-        offset: tf.Tensor,
+        inputs: tf.Tensor,
+        mask: Optional[tf.Tensor] = None,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         """Subsample x.
         Args:
-            x (tf.Tensor): Input tensor (#batch, time, idim).
-            x_mask (tf.Tensor): Input mask (#batch, time, 1).
+            inputs:
+                x (tf.Tensor): Input tensor (#batch, time, idim).
+                x_mask (tf.Tensor): Input mask (#batch, time, 1).
         Returns:
             tf.Tensor: Subsampled tensor (#batch, time', odim),
                 where time' = time // 4.
@@ -154,6 +156,7 @@ class Conv2dSubsampling4(BaseSubsampling):
                 where time' = time // 4.
             tf.Tensor: positional encoding
         """
+        x, offset = inputs
         x = tf.expand_dims(x, axis=3)  # (b, t, f, 1)
         # x = self.conv1(x)  # (b, t', f', 1)
         # x = tf.nn.relu(x)
@@ -163,8 +166,8 @@ class Conv2dSubsampling4(BaseSubsampling):
         b, t, f, c = x_shape[0], x_shape[1], x_shape[2], x_shape[3]
 
         x = self.out(tf.reshape(x, [b, t, f * c]))
-        x, pos_emb = self.pos_enc(x, offset, training=training)
-        return x, pos_emb, x_mask[:, :-2:2, :][:, :-2:2, :]
+        x, pos_emb = self.pos_enc((x, offset), training=training)
+        return x, pos_emb, mask[:, :-2:2, :][:, :-2:2, :]
 
 
 class Conv2dSubsampling6(BaseSubsampling):
@@ -219,14 +222,15 @@ class Conv2dSubsampling6(BaseSubsampling):
 
     def call(
         self,
-        x: tf.Tensor,
-        x_mask: tf.Tensor,
-        offset: tf.Tensor,
+        inputs: tf.Tensor,
+        mask: Optional[tf.Tensor] = None,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         """Subsample x.
         Args:
-            x (tf.Tensor): Input tensor (#batch, time, idim).
+            inputs:
+                x (tf.Tensor): Input tensor (#batch, time, idim).
+                offset (tf.Tensor)
             x_mask (tf.Tensor): Input mask (#batch, time, 1).
         Returns:
             tf.Tensor: Subsampled tensor (#batch, time', odim),
@@ -235,6 +239,7 @@ class Conv2dSubsampling6(BaseSubsampling):
                 where time' = time // 6.
             tf.Tensor: positional encoding
         """
+        x, offset = inputs
         x = tf.expand_dims(x, axis=3)  # (b, t, f, 1)
         # x = self.conv1(x)  # (b, t', f', 1)
         # x = tf.nn.relu(x)
@@ -244,8 +249,8 @@ class Conv2dSubsampling6(BaseSubsampling):
         b, t, f, c = x_shape[0], x_shape[1], x_shape[2], x_shape[3]
 
         x = self.out(tf.reshape(x, [b, t, f * c]))
-        x, pos_emb = self.pos_enc(x, offset, training=training)
-        return x, pos_emb, x_mask[:, :-2:2, :][:, :-4:3, :]
+        x, pos_emb = self.pos_enc((x, offset), training=training)
+        return x, pos_emb, mask[:, :-2:2, :][:, :-4:3, :]
 
 
 class Conv2dSubsampling8(BaseSubsampling):
@@ -308,14 +313,15 @@ class Conv2dSubsampling8(BaseSubsampling):
 
     def call(
         self,
-        x: tf.Tensor,
-        x_mask: tf.Tensor,
-        offset: tf.Tensor,
+        inputs: tf.Tensor,
+        mask: Optional[tf.Tensor] = None,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         """Subsample x.
         Args:
-            x (tf.Tensor): Input tensor (#batch, time, idim).
+            inputs:
+                x (tf.Tensor): Input tensor (#batch, time, idim).
+                offset (tf.Tensor)
             x_mask (tf.Tensor): Input mask (#batch, time, 1 ).
         Returns:
             tf.Tensor: Subsampled tensor (#batch, time', odim),
@@ -325,11 +331,12 @@ class Conv2dSubsampling8(BaseSubsampling):
             tf.Tensor: positional encoding
         """
 
+        x, offset = inputs
         x = tf.expand_dims(x, axis=3)  # (b, t, f, 1)
         x = self.conv(x)
         x_shape = tf.shape(x)
         b, t, f, c = x_shape[0], x_shape[1], x_shape[2], x_shape[3]
 
         x = self.out(tf.reshape(x, [b, t, f * c]))
-        x, pos_emb = self.pos_enc(x, offset, training=training)
-        return x, pos_emb, x_mask[:, :-2:2, :][:, :-2:2, :][:, :-2:2, :]
+        x, pos_emb = self.pos_enc((x, offset), training=training)
+        return x, pos_emb, mask[:, :-2:2, :][:, :-2:2, :][:, :-2:2, :]

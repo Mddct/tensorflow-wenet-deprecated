@@ -20,7 +20,8 @@ class GlobalCMVN(tf.keras.layers.Layer):
         self.istd = tf.Variable(istd, dtype=istd.dtype)
         self.mean = tf.Variable(mean, dtype=mean.dtype)
 
-    def call(self, x: tf.Tensor):
+    def call(self, inputs):
+        x = inputs
         x = tf.subtract(x, self.mean)
         if self.norm_var:
             x = tf.multiply(x, self.istd)

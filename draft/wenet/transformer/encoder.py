@@ -122,15 +122,15 @@ class BaseEncoder(tf.keras.layers.Layer):
 
     def call(
         self,
-        xs: tf.Tensor,
-        xs_lens: tf.Tensor,
+        inputs,
+        mask: Optional[tf.Tensor] = None,
         decoding_chunk_size: int = 0,
         num_decoding_left_chunks: int = -1,
     ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Embed positions in tensor.
         Args:
-            xs: padded input tensor (B, T, D)
-            xs_lens: input length (B)
+            inputs: padded input tensor (B, T, D)
+            mask: input length (B, T)
             decoding_chunk_size: decoding chunk size for dynamic chunk
                 0: default for training, use random dynamic chunk.
                 <0: for decoding, use full chunk.
@@ -145,12 +145,16 @@ class BaseEncoder(tf.keras.layers.Layer):
             masks: tf.Tensor batch padding mask after subsample
                 (B, T' ~= T/subsample_rate, 1)
         """
-        masks = tf.expand_dims(tf.sequence_mask(xs_lens), axis=2)  # (B, T, 1)
+        xs = inputs
+        masks = mask
+        # masks = tf.expand_dims(tf.sequence_mask(xs_lens), axis=2)  # (B, T, 1)
         if self.global_cmvn is not None:
             xs = self.global_cmvn(xs)
         # offset = [0, 0....] for training
-        fake_offset = tf.ones(tf.shape(xs)[0], dtype=xs_lens.dtype)
-        xs, pos_emb, masks = self.embed(xs, masks, fake_offset, training=True)
+        fake_offset = tf.ones(tf.shape(xs)[0], dtype=tf.int32)
+        xs, pos_emb, masks = self.embed([xs, fake_offset],
+                                        masks,
+                                        training=True)
         mask_pad = masks  # (B, T/subsample_rate, 1)
         masks = tf.transpose(masks, [0, 2, 1])  # (B, 1, T/subsample_rate)
         chunk_masks = add_optional_chunk_mask(xs, masks,
@@ -159,11 +163,10 @@ class BaseEncoder(tf.keras.layers.Layer):
                                               decoding_chunk_size,
                                               self.static_chunk_size,
                                               num_decoding_left_chunks)
+
         for layer in self.encoders:
-            xs, chunk_masks, _, _ = layer(xs,
+            xs, chunk_masks, _, _ = layer([xs, pos_emb, mask_pad, None, None],
                                           chunk_masks,
-                                          pos_emb,
-                                          mask_pad,
                                           training=True)
         if self.normalize_before:
             xs = self.after_norm(xs)
@@ -218,12 +221,11 @@ class BaseEncoder(tf.keras.layers.Layer):
         chunk_mask = tf.expand_dims(chunk_mask, axis=2)  # [B, T, 1]
         if self.global_cmvn is not None:
             xs = self.global_cmvn(xs)
-        xs, pos_emb, chunk_mask = self.embed(xs,
-                                             chunk_mask,
-                                             offset,
+        xs, pos_emb, chunk_mask = self.embed(inputs=[xs, offset],
+                                             mask=chunk_mask,
                                              training=False)
         att_cache_shape = tf.shape(att_cache)
-        elayers, cache_t1 = att_cache_shape[0], att_cache_shape[2]
+        _, cache_t1 = att_cache_shape[0], att_cache_shape[2]
         chunk_size = tf.shape(xs)[1]
         attention_key_size = cache_t1 + chunk_size
         pos_emb = self.embed.position_encoding(offset=offset - cache_t1,
@@ -237,12 +239,10 @@ class BaseEncoder(tf.keras.layers.Layer):
         r_cnn_cache = []
         for i, layer in enumerate(self.encoders):
             xs, _, new_att_cache, new_cnn_cache = layer(
-                xs,
-                # we don't need a mask for self attention
-                None,
-                pos_emb,
-                att_cache=att_cache[i:i + 1],
-                cnn_cache=cnn_cache[i],
+                inputs=[
+                    xs, pos_emb, chunk_mask, att_cache[i:i + 1], cnn_cache[i]
+                ],
+                mask=None,
                 training=False,
             )
             r_att_cache.append(new_att_cache[:, :, next_cache_start:, :])

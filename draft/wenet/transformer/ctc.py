@@ -36,7 +36,7 @@ class CTCDense(tf.keras.layers.Layer):
 
         # reduction_type = "sum" if reduce else "none"
 
-    def call(self, hs_pad: tf.Tensor, training: bool = True) -> tf.Tensor:
+    def call(self, inputs: tf.Tensor, training: bool = True) -> tf.Tensor:
         """Calculate CTC loss.
         Args:
             hs_pad: batch of padded hidden state sequences (B, Tmax, D)
@@ -44,38 +44,23 @@ class CTCDense(tf.keras.layers.Layer):
             ys_hat : [batch, odim]
         """
         # hs_pad: (B, L, NProj) -> ys_hat: (B, L, Nvocab)
-        ys_hat = self.ctc_lo(hs_pad, training=training)
+        ys_hat = self.ctc_lo(inputs, training=training)
         return ys_hat
-        # ys_hat: (B, L, D) -> (L, B, D)
-        # ys_hat = tf.nn.log_softmax(ys_hat, axis=2)
-        # loss = tf.nn.ctc_loss(
-        #     ys_pad,
-        #     ys_hat,
-        #     ys_lens,
-        #     hlens,
-        #     logits_time_major=False,
-        #     blank_index=0,  # wenet default blank is 0
-        # )
 
-        # return loss
-
-    def log_softmax(self,
-                    hs_pad: tf.Tensor,
-                    training: bool = False) -> tf.Tensor:
+    def log_softmax(self, inputs: tf.Tensor) -> tf.Tensor:
         """log_softmax of frame activations
         Args:
             Tensor hs_pad: 3d tensor (B, Tmax, eprojs)
         Returns:
             tf.Tensor: log softmax applied 3d tensor (B, Tmax, odim)
         """
-        return tf.nn.log_softmax(self.ctc_lo(hs_pad, training=training),
-                                 axis=-1)
+        return tf.nn.log_softmax(self.ctc_lo(inputs, training=False), axis=-1)
 
-    def argmax(self, hs_pad: tf.Tensor, training: bool = False) -> tf.Tensor:
+    def argmax(self, hs_pad: tf.Tensor) -> tf.Tensor:
         """argmax of frame activations
         Args:
             tf.Tensor hs_pad: 3d tensor (B, Tmax, eprojs)
         Returns:
             tf.Tensor: argmax applied 2d tensor (B, Tmax)
         """
-        return tf.argmax(self.ctc_lo(hs_pad, training=training), axis=2)
+        return tf.argmax(self.ctc_lo(hs_pad, training=False), axis=-1)

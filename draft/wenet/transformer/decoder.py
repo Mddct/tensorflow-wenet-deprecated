@@ -146,7 +146,7 @@ class TransformerDecoder(tf.keras.layers.Layer):
         # x, _ = self.embed(tgt)
         fake_offset = tf.zeros([tgt_shape[0]], dtype=tgt.dtype)
         x = self.look_up(tgt)
-        x, _ = self.position(x, fake_offset, training=training)
+        x, _ = self.position([x, fake_offset], training=training)
 
         # memory_mask = tf.transpose(memory_mask, [0, 2, 1])  # [B,1,T]
         for layer in self.decoders:
@@ -165,56 +165,56 @@ class TransformerDecoder(tf.keras.layers.Layer):
         # olens = tf.reduce_sum(tgt_mask, axis=1)
         return x, tf.constant(0.0, dtype=x.dtype)
 
-    def forward_one_step(
-        self,
-        memory: tf.Tensor,
-        memory_mask: tf.Tensor,
-        tgt: tf.Tensor,
-        tgt_mask: tf.Tensor,
-        cache: Optional[List[tf.Tensor]] = None,
-    ) -> Tuple[tf.Tensor, List[tf.Tensor]]:
-        """Forward one step.
-            This is only used for decoding.
-        Args:
-            memory: encoded memory, float32  (batch, maxlen_in, feat)
-            memory_mask: encoded memory mask, (batch, 1, maxlen_in)
-            tgt: input token ids, int64 (batch, maxlen_out)
-            tgt_mask: input token mask,  (batch, maxlen_out)
-                      dtype=tf.uint8 in PyTf 1.2-
-                      dtype=tf.bool in PyTf 1.2+ (include 1.2)
-            cache: cached output list of (batch, max_time_out-1, size)
-        Returns:
-            y, cache: NN output value and cache per `self.decoders`.
-            y.shape` is (batch, maxlen_out, token)
-        """
+    # def forward_one_step(
+    #     self,
+    #     memory: tf.Tensor,
+    #     memory_mask: tf.Tensor,
+    #     tgt: tf.Tensor,
+    #     tgt_mask: tf.Tensor,
+    #     cache: Optional[List[tf.Tensor]] = None,
+    # ) -> Tuple[tf.Tensor, List[tf.Tensor]]:
+    #     """Forward one step.
+    #         This is only used for decoding.
+    #     Args:
+    #         memory: encoded memory, float32  (batch, maxlen_in, feat)
+    #         memory_mask: encoded memory mask, (batch, 1, maxlen_in)
+    #         tgt: input token ids, int64 (batch, maxlen_out)
+    #         tgt_mask: input token mask,  (batch, maxlen_out)
+    #                   dtype=tf.uint8 in PyTf 1.2-
+    #                   dtype=tf.bool in PyTf 1.2+ (include 1.2)
+    #         cache: cached output list of (batch, max_time_out-1, size)
+    #     Returns:
+    #         y, cache: NN output value and cache per `self.decoders`.
+    #         y.shape` is (batch, maxlen_out, token)
+    #     """
 
-        x = self.look_up(tgt)
-        x, _ = self.position(x, fake_offset, training=False)
-        # x, _ = self.embed(tgt)
-        new_cache = []
-        for i, decoder in enumerate(self.decoders):
-            if cache is None:
-                c = None
-            else:
-                c = cache[i]
-            x, tgt_mask, memory, memory_mask = decoder(x,
-                                                       tgt_mask,
-                                                       memory,
-                                                       memory_mask,
-                                                       cache=c,
-                                                       training=False)
-            new_cache.append(x)
-        if self.normalize_before:
-            y = self.after_norm(x[:, -1])
-        else:
-            y = x[:, -1]
-        if self.use_output_layer:
-            if self.output_layer_share_weights:
-                y = self.output_layer(y, mode='linear')
-            else:
-                y = self.output_layer(y)
-            y = tf.nn.log_softmax(y, axis=-1)
-        return y, new_cache
+    #     x = self.look_up(tgt)
+    #     x, _ = self.position([x, fake_offset], training=False)
+    #     # x, _ = self.embed(tgt)
+    #     new_cache = []
+    #     for i, decoder in enumerate(self.decoders):
+    #         if cache is None:
+    #             c = None
+    #         else:
+    #             c = cache[i]
+    #         x, tgt_mask, memory, memory_mask = decoder(x,
+    #                                                    tgt_mask,
+    #                                                    memory,
+    #                                                    memory_mask,
+    #                                                    cache=c,
+    #                                                    training=False)
+    #         new_cache.append(x)
+    #     if self.normalize_before:
+    #         y = self.after_norm(x[:, -1])
+    #     else:
+    #         y = x[:, -1]
+    #     if self.use_output_layer:
+    #         if self.output_layer_share_weights:
+    #             y = self.output_layer(y, mode='linear')
+    #         else:
+    #             y = self.output_layer(y)
+    #         y = tf.nn.log_softmax(y, axis=-1)
+    #     return y, new_cache
 
 
 class BiTransformerDecoder(tf.keras.layers.Layer):
@@ -313,32 +313,32 @@ class BiTransformerDecoder(tf.keras.layers.Layer):
                                                training=training)
         return l_x, r_x, olens
 
-    def forward_one_step(
-        self,
-        memory: tf.Tensor,
-        memory_mask: tf.Tensor,
-        tgt: tf.Tensor,
-        tgt_mask: tf.Tensor,
-        cache: Optional[List[tf.Tensor]] = None,
-    ) -> Tuple[tf.Tensor, List[tf.Tensor]]:
-        """Forward one step.
-            This is only used for decoding.
-        Args:
-            memory: encoded memory, float32  (batch, maxlen_in, feat)
-            memory_mask: encoded memory mask, (batch, 1, maxlen_in)
-            tgt: input token ids, int64 (batch, maxlen_out)
-            tgt_mask: input token mask,  (batch, maxlen_out)
-                      dtype=tf.uint8 in PyTf 1.2-
-                      dtype=tf.bool in PyTf 1.2+ (include 1.2)
-            cache: cached output list of (batch, max_time_out-1, size)
-        Returns:
-            y, cache: NN output value and cache per `self.decoders`.
-            y.shape` is (batch, maxlen_out, token)
-        """
-        return self.left_decoder.forward_one_step(
-            memory,
-            memory_mask,
-            tgt,
-            tgt_mask,
-            cache,
-        )
+    # def forward_one_step(
+    #     self,
+    #     memory: tf.Tensor,
+    #     memory_mask: tf.Tensor,
+    #     tgt: tf.Tensor,
+    #     tgt_mask: tf.Tensor,
+    #     cache: Optional[List[tf.Tensor]] = None,
+    # ) -> Tuple[tf.Tensor, List[tf.Tensor]]:
+    #     """Forward one step.
+    #         This is only used for decoding.
+    #     Args:
+    #         memory: encoded memory, float32  (batch, maxlen_in, feat)
+    #         memory_mask: encoded memory mask, (batch, 1, maxlen_in)
+    #         tgt: input token ids, int64 (batch, maxlen_out)
+    #         tgt_mask: input token mask,  (batch, maxlen_out)
+    #                   dtype=tf.uint8 in PyTf 1.2-
+    #                   dtype=tf.bool in PyTf 1.2+ (include 1.2)
+    #         cache: cached output list of (batch, max_time_out-1, size)
+    #     Returns:
+    #         y, cache: NN output value and cache per `self.decoders`.
+    #         y.shape` is (batch, maxlen_out, token)
+    #     """
+    #     return self.left_decoder.forward_one_step(
+    #         memory,
+    #         memory_mask,
+    #         tgt,
+    #         tgt_mask,
+    #         cache,
+    #     )

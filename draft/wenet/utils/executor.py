@@ -1,19 +1,23 @@
+from typing import Optional
 import orbit
 import tensorflow as tf
 
 
 class AsrTrainer(orbit.StandardTrainer):
 
-    def __init__(self,
-                 train_dataset,
-                 model,
-                 optimizer,
-                 global_batch_size,
-                 strategy: tf.distribute.Strategy,
-                 metrics=None,
-                 traininer_options=None) -> None:
+    def __init__(
+        self,
+        train_dataset,
+        model,
+        optimizer,
+        global_batch_size,
+        strategy: Optional[tf.distribute.Strategy] = None,
+        metrics=None,
+        trainer_options=None,
+    ) -> None:
 
-        self.strategy = strategy
+        self.strategy = strategy if strategy is not None else tf.distribute.get_strategy(
+        )
         with self.strategy.scope():
             self.optimizer = optimizer
             self.model = model
@@ -28,11 +32,9 @@ class AsrTrainer(orbit.StandardTrainer):
         else:
             self.metrics = {'loss': metrics}
 
-        self.batch_steps = tf.Variable(0, dtype=tf.float32)
-
         super(AsrTrainer, self).__init__(
             train_dataset=train_dataset,
-            options=traininer_options,
+            options=trainer_options,
         )
 
     def train_loop_begin(self):
@@ -44,11 +46,12 @@ class AsrTrainer(orbit.StandardTrainer):
         def train_fn(inputs):
 
             with tf.GradientTape() as tape:
-                feats, feats_length, labels, labels_length = inputs
-                labels = tf.cast(labels, dtype=tf.int32)
-                labels_length = tf.cast(labels_length, dtype=tf.int32)
+                # feats, feats_length, labels, labels_length = inputs
+                # labels = tf.cast(labels, dtype=tf.int32)
+                # labels_length = tf.cast(labels_length, dtype=tf.int32)
+                _, _, labels, labels_length = inputs
                 encoder_out, encoder_out_lens, decoder_out, ys_out_pad, r_decoder_out, r_ys_out_pad = self.model(
-                    feats, feats_length, labels, labels_length)
+                    inputs)
                 loss_dict = self.model.compute_loss(
                     encoder_out,
                     encoder_out_lens,
@@ -77,14 +80,12 @@ class AsrTrainer(orbit.StandardTrainer):
 
         self.strategy.run(train_fn, args=(next(iterator), ))
 
-        self.batch_steps.assign_add(1.0)
-
     def train_loop_end(self):
 
         with self.strategy.scope():
             # Export the metrics.
             metrics = {
-                name: metric.result() / self.batch_steps
+                name: metric.result() / self.optimizer.iterations.numpy()
                 for name, metric in self.metrics.items()
             }
             if isinstance(self.optimizer.lr,
@@ -93,8 +94,6 @@ class AsrTrainer(orbit.StandardTrainer):
             else:
                 current_lr = self.optimizer.lr
             metrics['learnint_rate'] = current_lr
-
-        self.batch_steps.assign(0)
 
         return metrics
 

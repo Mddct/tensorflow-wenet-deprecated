@@ -1,5 +1,9 @@
 import os
 
+from tensorflow.python.eager.context import num_gpus
+
+from wenet.utils.distribute_utils import get_distribution_strategy
+
 import orbit
 import tensorflow as tf
 import yaml
@@ -42,10 +46,18 @@ flags.DEFINE_string('symbol_table',
                     help='model unit symbol table for training')
 flags.DEFINE_integer('prefetch', default=100, help='prefetch number')
 flags.DEFINE_integer('max_to_keep', default=100, help='max to keep checkpoint')
+flags.DEFINE_integer('checkpoint_interval',
+                     default=100,
+                     help='the minimum step interval between two checkpoints.')
 flags.DEFINE_enum(
     'dist_strategy',
-    default='MirroredStrategy',
-    enum_values=['MirroredStrategy', 'MultiWorkerMirroredStrategy'],
+    default='one_device',
+    enum_values=[
+        "one_device",
+        "mirrored",
+        "parameter_server",
+        "multi_worker_mirrored",
+    ],
     help="""MultiWorkerMirroredStrategy: mutli machine multi gpus\n
     MirrordStrategy: one machine multi gpus""")
 flags.DEFINE_string('trained_model_path',
@@ -59,16 +71,13 @@ def main(argv):
     with open(FLAGS.config, 'r') as fin:
         configs = yaml.load(fin, Loader=yaml.FullLoader)
 
-    strategy = None
-    if FLAGS.dist_strategy == 'MirroredStrategy':
-        strategy = tf.distribute.MirroredStrategy()
-    elif FLAGS.dist_strategy == 'MultiWorkerMirroredStrategy':
-        communication_options = tf.distribute.experimental.CommunicationOptions(
-            implementation=tf.distribute.experimental.
-            CommunicationImplementation.RING)
-        strategy = tf.distribute.MultiWorkerMirroredStrategy(
-            communication_options=communication_options)
-
+    num_gpus = 0
+    if os.environ['CUDA_VISIBLE_DEVICES'] is not None:
+        num_gpus = len(os.environ['CUDA_VISIBLE_DEVIDES'].split(","))
+    strategy = get_distribution_strategy(
+        FLAGS.dist_strategy,
+        num_gpus=num_gpus,
+    )
     dataset_conf = configs['dataset_conf']
 
     # TOO: global_batch_size from TF_CONFIG
@@ -137,25 +146,28 @@ def main(argv):
             checkpoint,
             checkpoint_dir,
             max_to_keep=FLAGS.max_to_keep if is_chief(strategy) else 0,
+            checkpoint_interval=FLAGS.checkpoint_interval
+            if is_chief(strategy) else None,
+            step_counter=checkpoint.optimizer.iterations,
             init_fn=init_fn,  # future to init partial weight
         )
-    trainer = AsrTrainer(
-        train_dataset,
-        model,
-        optimizer,
-        global_batch_size=global_batch_size,
-        strategy=strategy,
-        metrics=metrics,
-    )
-    controller = orbit.Controller(
-        trainer=trainer,
-        steps_per_loop=10,
-        global_step=trainer.optimizer.iterations,
-        checkpoint_manager=checkpoint_manager,
-        summary_interval=configs['log_interval'],
-        summary_dir=os.path.join(checkpoint_dir, "tensorboard"),
-    )
-    controller.train(configs['max_steps'])
+        trainer = AsrTrainer(
+            train_dataset,
+            model,
+            optimizer,
+            global_batch_size=global_batch_size,
+            strategy=strategy,
+            metrics=metrics,
+        )
+        controller = orbit.Controller(
+            trainer=trainer,
+            steps_per_loop=10,
+            global_step=trainer.optimizer.iterations,
+            checkpoint_manager=checkpoint_manager,
+            summary_interval=configs['log_interval'],
+            summary_dir=os.path.join(checkpoint_dir, "tensorboard"),
+        )
+        controller.train(configs['max_steps'])
 
     # # TODO: train and continous evaluate
     # train(model,

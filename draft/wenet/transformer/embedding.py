@@ -63,17 +63,18 @@ class PositionalEncoding(tf.keras.layers.Layer):
         self.pe = tf.expand_dims(positional_encoding(max_len, d_model), axis=0)
 
     def call(self,
-             x: tf.Tensor,
-             offset: tf.Tensor,
+             inputs,
              training: bool = True) -> Tuple[tf.Tensor, tf.Tensor]:
         """Add positional encoding.
         Args:
-            x (tf.Tensor): Input. Its shape is (batch, time, ...)
-            offset (tf.tensor): position offset
+            inputs:
+                x (tf.Tensor): Input. Its shape is (batch, time, ...)
+                offset (tf.tensor): position offset
         Returns:
             tf.Tensor: Encoded tensor. Its shape is (batch, time, ...)
             tf.Tensor: for compatibility to RelPositionalEncoding
         """
+        x, offset = inputs
         pos_emb = self.position_encoding(offset,
                                          tf.shape(x)[1],
                                          False,
@@ -132,17 +133,18 @@ class RelPositionalEncoding(PositionalEncoding):
                          name=name)
 
     def call(self,
-             x: tf.Tensor,
-             offset: tf.Tensor,
+             inputs,
              training: bool = True) -> Tuple[tf.Tensor, tf.Tensor]:
         """Compute positional encoding.
         Args:
-            x (tf.Tensor): Input tensor (batch, time, `*`).
-            offset (tf.Tensor): [B]
+            inputs:
+                  x (tf.Tensor): Input tensor (batch, time, `*`).
+                  offset (tf.Tensor): [B]
         Returns:
             tf.Tensor: Encoded tensor (batch, time, `*`).
             tf.Tensor: Positional embedding tensor (1, time, `*`).
         """
+        x, offset = inputs
         x = x * self.xscale
         pos_emb = self.position_encoding(offset,
                                          tf.shape(x)[1],
@@ -166,12 +168,11 @@ class NoPositionalEncoding(tf.keras.layers.Layer):
         self.dropout = tf.keras.layers.Dropout(rate=dropout_rate)
 
     def call(self,
-             x: tf.Tensor,
-             offset: tf.Tensor,
+             inputs,
              training: bool = True) -> Tuple[tf.Tensor, tf.Tensor]:
         """ Just return zero vector for interface compatibility
         """
-        _ = offset
+        x, _ = inputs
         pos_emb = tf.zeros([1, tf.shape(x)[1], self.d_model], dtype=tf.float32)
         return self.dropout(x, training=training), pos_emb
 

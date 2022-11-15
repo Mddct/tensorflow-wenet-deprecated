@@ -41,11 +41,11 @@ class PositionwiseFeedForward(tf.keras.layers.Layer):
                                   kernel_regularizer=kernel_regularizer),
         ])
 
-    def call(self, xs: tf.Tensor, training=True) -> tf.Tensor:
+    def call(self, inputs: tf.Tensor, training=True) -> tf.Tensor:
         """Forward function.
         Args:
-            xs: input tensor (B, L, D)
+            inputs: input tensor (B, L, D)
         Returns:
             output tensor, (B, L, D)
         """
-        return self.out(xs, training=training)
+        return self.out(inputs, training=training)

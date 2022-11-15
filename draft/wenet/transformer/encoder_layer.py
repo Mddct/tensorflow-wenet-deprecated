@@ -71,27 +71,22 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
 
     def call(
         self,
-        x: tf.Tensor,
+        inputs: tf.Tensor,
         mask: Optional[tf.Tensor] = None,
-        pos_emb: Optional[tf.Tensor] = None,
-        mask_pad: Optional[tf.Tensor] = None,
-        att_cache: Optional[tf.Tensor] = None,
-        cnn_cache: Optional[tf.Tensor] = None,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
         """Compute encoded features.
         Args:
-            x (tf.Tensor): (#batch, time, size)
+            inputs:
+                x (tf.Tensor): (#batch, time, size)
+                att_cache (tf.Tensor): Cache tensor of the KEY & VALUE
+                    (#batch=1, head, cache_t1, d_k * 2), head * d_k == size.
+                cnn_cache (tf.Tensor): Convolution cache in conformer layer
+                    (#batch=1, size, cache_t2), not used here, it's for interface
+                    compatibility to ConformerEncoderLayer.
+
             mask (tf.Tensor): Mask tensor for the input (#batch, time，time),
-            pos_emb (tf.Tensor): just for interface compatibility
-                to ConformerEncoderLayer
-            mask_pad (tf.Tensor): does not used in transformer layer,
-                just for unified api with conformer.
-            att_cache (tf.Tensor): Cache tensor of the KEY & VALUE
-                (#batch=1, head, cache_t1, d_k * 2), head * d_k == size.
-            cnn_cache (tf.Tensor): Convolution cache in conformer layer
-                (#batch=1, size, cache_t2), not used here, it's for interface
-                compatibility to ConformerEncoderLayer.
+
         Returns:
             tf.Tensor: Output tensor (#batch, time, size).
             tf.Tensor: Mask tensor (#batch, time, time).
@@ -99,6 +94,7 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
                 (#batch=1, head, cache_t1 + time, d_k * 2).
             tf.Tensor: cnn_cahce tensor (#batch=1, size, cache_t2).
         """
+        x, _, _, att_cache, _ = inputs
         residual = x
         if self.normalize_before:
             x = self.norm1(x)
@@ -226,26 +222,24 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
 
     def call(
         self,
-        x: tf.Tensor,
+        inputs: tf.Tensor,
         mask: Optional[tf.Tensor] = None,
-        pos_emb: Optional[tf.Tensor] = None,
-        mask_pad: Optional[tf.Tensor] = None,
-        att_cache: Optional[tf.Tensor] = None,
-        cnn_cache: Optional[tf.Tensor] = None,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
         """Compute encoded features.
         Args:
-            x (tf.Tensor): (#batch, time, size)
+            inputs:
+                x (tf.Tensor): (#batch, time, size)
+                pos_emb (tf.Tensor): positional encoding, must not be None
+                    for ConformerEncoderLayer.
+                mask_pad (tf.Tensor): batch padding mask used for conv module.
+                    (#batch, time,1 )
+                att_cache (tf.Tensor): Cache tensor of the KEY & VALUE
+                    (#batch=1, head, cache_t1, d_k * 2), head * d_k == size.
+                cnn_cache (tf.Tensor): Convolution cache in conformer layer
+                    (#batch=1, size, cache_t2)
             mask (tf.Tensor): Mask tensor for the input (#batch, time，time),
-            pos_emb (tf.Tensor): positional encoding, must not be None
-                for ConformerEncoderLayer.
-            mask_pad (tf.Tensor): batch padding mask used for conv module.
-                (#batch, time,1 )
-            att_cache (tf.Tensor): Cache tensor of the KEY & VALUE
-                (#batch=1, head, cache_t1, d_k * 2), head * d_k == size.
-            cnn_cache (tf.Tensor): Convolution cache in conformer layer
-                (#batch=1, size, cache_t2)
+
         Returns:
             tf.Tensor: Output tensor (#batch, time, size).
             tf.Tensor: Mask tensor (#batch, time, time).
@@ -256,6 +250,7 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
                 valid when training=False
         """
 
+        x, pos_emb, mask_pad, att_cache, cnn_cache = inputs
         # whether to use macaron style
         if self.feed_forward_macaron is not None:
             residual = x
@@ -294,9 +289,7 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
             residual = x
             if self.normalize_before:
                 x = self.norm_conv(x)
-            x, new_cnn_cache = self.conv_module(x,
-                                                mask_pad,
-                                                cnn_cache,
+            x, new_cnn_cache = self.conv_module([x, mask_pad, cnn_cache],
                                                 training=training)
             x = residual + self.dropout(x, training=training)
 
