@@ -21,14 +21,14 @@ class PositionwiseFeedForward(tf.keras.layers.Layer):
             hidden_units: int,
             dropout_rate: float,
             activation: str = 'relu',
-            bias_regularizer=tf.keras.regularizers.l2(1e-6),
-            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+            bias_regularizer="l2",
+            kernel_regularizer="l2",
+            **kwargs,
     ):
         """Construct a PositionwiseFeedForward object."""
-        super(PositionwiseFeedForward, self).__init__()
+        super(PositionwiseFeedForward, self).__init__(**kwargs)
 
         self.out = tf.keras.Sequential([
-            tf.keras.layers.Input(shape=[None, idim]),
             tf.keras.layers.Dense(
                 hidden_units,
                 bias_regularizer=bias_regularizer,
@@ -39,6 +39,7 @@ class PositionwiseFeedForward(tf.keras.layers.Layer):
             tf.keras.layers.Dense(idim,
                                   bias_regularizer=bias_regularizer,
                                   kernel_regularizer=kernel_regularizer),
+            tf.keras.layers.Dropout(dropout_rate),
         ])
 
     def call(self, inputs: tf.Tensor, training=True) -> tf.Tensor:

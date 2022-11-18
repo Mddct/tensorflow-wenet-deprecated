@@ -1,5 +1,4 @@
 import tensorflow as tf
-# tfio for s3 read
 import tensorflow_io as tfio
 from wenet.tfaudio import fbank, speed
 

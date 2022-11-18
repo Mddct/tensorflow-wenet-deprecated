@@ -5,16 +5,17 @@ from wenet.tfaudio import SpectrumAugmenter
 from wenet.utils.file_utils import read_symbol_table
 
 
-def look_up_table(symbol_table_path):
+def look_up_table(symbol_table_path, unk="<unk>"):
 
     words, ids = read_symbol_table(symbol_table_path)
     init = tf.lookup.KeyValueTensorInitializer(
         keys=tf.constant(words, dtype=tf.string),
-        values=tf.constant(ids, dtype=tf.int64),
+        values=tf.constant(ids, dtype=tf.int32),
     )
-    return tf.lookup.StaticVocabularyTable(
+    unk_id = ids[words.index(unk)]
+    return tf.lookup.StaticHashTable(
         init,
-        num_oov_buckets=1,
+        default_value=unk_id,
     ), len(words)
 
 
@@ -67,8 +68,8 @@ def Dataset(
         speed_perturb = conf.get('speed_perturb', False)
         if speed_perturb:
             dataset = dataset.map(
-                lambda waveform, sr, labels:
-                (processor.speed_perturb(waveform, sr), sr, labels),
+                lambda waveform, sr, labels: (processor.speed_perturb(
+                    waveform, sr, tf.constant([0.9, 1.0, 1.1])), sr, labels),
                 tf.data.AUTOTUNE)
 
         filter_conf = conf.get('filter_conf', {})

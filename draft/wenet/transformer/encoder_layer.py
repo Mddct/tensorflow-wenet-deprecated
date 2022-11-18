@@ -1,6 +1,7 @@
 """Encoder self-attention layer definition."""
 
 from typing import Optional, Tuple
+from keras.backend_config import epsilon
 
 import tensorflow as tf
 
@@ -31,8 +32,8 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
                  dropout_rate: float,
                  normalize_before: bool = True,
                  concat_after: bool = False,
-                 bias_regularizer=tf.keras.regularizers.l2(1e-6),
-                 kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+                 bias_regularizer="l2",
+                 kernel_regularizer="l2",
                  trainable=True,
                  name="TransformerEncoderLayer",
                  dtype=None,
@@ -42,8 +43,6 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
 
         self.self_attn = self_attn
         self.feed_forward = feed_forward
-        # self.norm1 = nn.LayerNorm(size, eps=1e-5)
-        # self.norm2 = nn.LayerNorm(size, eps=1e-5)
         self.norm1 = tf.keras.layers.LayerNormalization(
             gamma_regularizer=kernel_regularizer,
             beta_regularizer=bias_regularizer,
@@ -55,10 +54,10 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
             epsilon=1e-6,
         )
 
-        self.dropout = tf.keras.layers.Dropout(dropout_rate,
-                                               name=f"{name}_dropout")
+        self.dropout_rate = dropout_rate
+
         self.size = size
-        self.normalize_before = normalize_before
+        self.pre_nrom = normalize_before
         self.concat_after = concat_after
         if concat_after:
             self.concat_linear = tf.keras.layers.Dense(
@@ -66,8 +65,6 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
                 kernel_regularizer=kernel_regularizer,
                 bias_regularizer=bias_regularizer,
             )
-        # else:
-        # self.concat_linear = nn.Identity()
 
     def call(
         self,
@@ -96,7 +93,7 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
         """
         x, _, _, att_cache, _ = inputs
         residual = x
-        if self.normalize_before:
+        if self.pre_nrom:
             x = self.norm1(x)
 
         x_att, new_att_cache = self.self_attn(x,
@@ -107,18 +104,25 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
                                               training=training)
         if self.concat_after:
             x_concat = tf.concat((x, x_att), axis=-1)
-            x = residual + self.concat_linear(x_concat)
+            if training:
+                x = residual + tf.nn.dropout(self.concat_linear(x_concat),
+                                             rate=self.dropout_rate)
+            else:
+                x = residual + self.concat_linear(x_concat)
         else:
-            x = residual + self.dropout(x_att, training=training)
-        if not self.normalize_before:
+            if training:
+                x = residual + tf.nn.dropout(x_att, rate=self.dropout_rate)
+            else:
+                x = residual + x_att
+
+        if not self.pre_nrom:
             x = self.norm1(x)
 
         residual = x
-        if self.normalize_before:
+        if self.pre_nrom:
             x = self.norm2(x)
-        x = residual + self.dropout(self.feed_forward(x, training=training),
-                                    training=training)
-        if not self.normalize_before:
+        x = residual + self.feed_forward(x, training=training)
+        if not self.pre_nrom:
             x = self.norm2(x)
 
         fake_cnn_cache = tf.zeros((0, 0, 0), dtype=x.dtype)
@@ -158,15 +162,17 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
                  dropout_rate: float = 0.1,
                  normalize_before: bool = True,
                  concat_after: bool = False,
-                 bias_regularizer=tf.keras.regularizers.l2(1e-6),
-                 kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+                 bias_regularizer="l2",
+                 kernel_regularizer="l2",
                  trainable=True,
                  name="ConformerEncoderLayer",
                  dtype=None,
                  dynamic=False,
                  **kwargs):
         """Construct an EncoderLayer object."""
-        super().__init__(trainable, name, dtype, dynamic, **kwargs)
+        super(ConformerEncoderLayer, self).__init__(trainable, name, dtype,
+                                                    dynamic, **kwargs)
+        assert conv_module is not None
         self.self_attn = self_attn
         self.feed_forward = feed_forward
         self.feed_forward_macaron = feed_forward_macaron
@@ -177,41 +183,43 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
         self.norm_ff = tf.keras.layers.LayerNormalization(
             gamma_regularizer=kernel_regularizer,
             beta_regularizer=bias_regularizer,
+            epsilon=1e-6,
         )
         self.norm_mha = tf.keras.layers.LayerNormalization(
             gamma_regularizer=kernel_regularizer,
             beta_regularizer=bias_regularizer,
+            ellipsis=1e-6,
         )
 
-        if feed_forward_macaron is not None:
+        self.macaron = True if feed_forward_macaron is not None else False
+        if self.macaron:
             # self.norm_ff_macaron = nn.LayerNorm(size, eps=1e-5)
             self.norm_ff_macaron = tf.keras.layers.LayerNormalization(
                 gamma_regularizer=kernel_regularizer,
                 beta_regularizer=bias_regularizer,
-                epsilon=1e-5,
+                epsilon=1e-6,
             )
             self.ff_scale = 0.5
         else:
             self.ff_scale = 1.0
-        if self.conv_module is not None:
-            # self.norm_conv = nn.LayerNorm(size, eps=1e-5)  # for the CNN module
-            # self.norm_final = nn.LayerNorm(
-            #     size, eps=1e-5)  # for the final output of the block
-            self.norm_conv = tf.keras.layers.LayerNormalization(
-                gamma_regularizer=kernel_regularizer,
-                beta_regularizer=bias_regularizer,
-                epsilon=1e-5,
-            )
-            self.norm_final = tf.keras.layers.LayerNormalization(
-                gamma_regularizer=kernel_regularizer,
-                beta_regularizer=bias_regularizer,
-                epsilon=1e-5,
-            )
+        # self.norm_conv = nn.LayerNorm(size, eps=1e-5)  # for the CNN module
+        # self.norm_final = nn.LayerNorm(
+        #     size, eps=1e-5)  # for the final output of the block
+        self.norm_conv = tf.keras.layers.LayerNormalization(
+            gamma_regularizer=kernel_regularizer,
+            beta_regularizer=bias_regularizer,
+            epsilon=1e-6,
+        )
+        self.norm_final = tf.keras.layers.LayerNormalization(
+            gamma_regularizer=kernel_regularizer,
+            beta_regularizer=bias_regularizer,
+            epsilon=1e-6,
+        )
         # self.dropout = nn.Dropout(dropout_rate)
-        self.dropout = tf.keras.layers.Dropout(dropout_rate,
-                                               name=f"{name}_dropout")
+        self.dropout_rate = dropout_rate
+
         self.size = size
-        self.normalize_before = normalize_before
+        self.pre_norm = normalize_before
         self.concat_after = concat_after
         if self.concat_after:
             self.concat_linear = tf.keras.layers.Dense(
@@ -252,19 +260,18 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
 
         x, pos_emb, mask_pad, att_cache, cnn_cache = inputs
         # whether to use macaron style
-        if self.feed_forward_macaron is not None:
+        if self.macaron:
             residual = x
-            if self.normalize_before:
+            if self.pre_norm:
                 x = self.norm_ff_macaron(x)
-            x = residual + self.ff_scale * self.dropout(
-                self.feed_forward_macaron(x, training=training),
-                training=training)
-            if not self.normalize_before:
+            x = residual + self.ff_scale * self.feed_forward_macaron(
+                x, training=training)
+            if not self.pre_norm:
                 x = self.norm_ff_macaron(x)
 
         # multi-headed self-attention module
         residual = x
-        if self.normalize_before:
+        if self.pre_norm:
             x = self.norm_mha(x)
 
         x_att, new_att_cache = self.self_attn(x,
@@ -276,37 +283,40 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
                                               training=training)
         if self.concat_after:
             x_concat = tf.concat((x, x_att), axis=-1)
-            x = residual + self.concat_linear(x_concat)
+            if training:
+                x = residual + tf.nn.dropout(self.concat_linear(x_concat),
+                                             rate=self.dropout_rate)
+            else:
+                x = residual + self.concat_linear(x_concat)
         else:
-            x = residual + self.dropout(x_att, training=training)
-        if not self.normalize_before:
+            if training:
+                x = residual + tf.nn.dropout(x_att, rate=self.dropout_rate)
+            else:
+                x = residual + x_att
+        if not self.pre_norm:
             x = self.norm_mha(x)
 
         # convolution module
         # Fake new cnn cache here, and then change it in conv_module
-        new_cnn_cache = tf.zeros((0, 0, 0), dtype=x.dtype)
-        if self.conv_module is not None:
-            residual = x
-            if self.normalize_before:
-                x = self.norm_conv(x)
-            x, new_cnn_cache = self.conv_module([x, mask_pad, cnn_cache],
-                                                training=training)
-            x = residual + self.dropout(x, training=training)
-
-            if not self.normalize_before:
-                x = self.norm_conv(x)
+        residual = x
+        if self.pre_norm:
+            x = self.norm_conv(x)
+        x, new_cnn_cache = self.conv_module(x,
+                                            mask_pad,
+                                            cnn_cache,
+                                            training=training)
+        x = residual + x
+        if not self.pre_norm:
+            x = self.norm_conv(x)
 
         # feed forward module
         residual = x
-        if self.normalize_before:
+        if self.pre_norm:
             x = self.norm_ff(x)
 
-        x = residual + self.ff_scale * self.dropout(
-            self.feed_forward(x, training=training), training=training)
-        if not self.normalize_before:
+        x = residual + self.ff_scale * self.feed_forward(x, training=training)
+        if not self.pre_norm:
             x = self.norm_ff(x)
 
-        if self.conv_module is not None:
-            x = self.norm_final(x)
-
+        x = self.norm_final(x)
         return x, mask, new_att_cache, new_cnn_cache

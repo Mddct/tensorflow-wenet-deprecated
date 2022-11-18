@@ -16,8 +16,7 @@ from wenet.transformer.subsampling import (Conv2dSubsampling4,
                                            Conv2dSubsampling6,
                                            Conv2dSubsampling8,
                                            LinearNoSubsampling)
-from wenet.utils.mask import (add_optional_chunk_mask, get_next_cache_start,
-                              make_pad_mask)
+from wenet.utils.mask import (add_optional_chunk_mask, get_next_cache_start)
 
 
 class BaseEncoder(tf.keras.layers.Layer):
@@ -123,9 +122,9 @@ class BaseEncoder(tf.keras.layers.Layer):
     def call(
         self,
         inputs,
-        mask: Optional[tf.Tensor] = None,
         decoding_chunk_size: int = 0,
         num_decoding_left_chunks: int = -1,
+        training=True,
     ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Embed positions in tensor.
         Args:
@@ -145,16 +144,15 @@ class BaseEncoder(tf.keras.layers.Layer):
             masks: tf.Tensor batch padding mask after subsample
                 (B, T' ~= T/subsample_rate, 1)
         """
-        xs = inputs
-        masks = mask
-        # masks = tf.expand_dims(tf.sequence_mask(xs_lens), axis=2)  # (B, T, 1)
+        xs, xs_lens = inputs
         if self.global_cmvn is not None:
             xs = self.global_cmvn(xs)
         # offset = [0, 0....] for training
-        fake_offset = tf.ones(tf.shape(xs)[0], dtype=tf.int32)
-        xs, pos_emb, masks = self.embed([xs, fake_offset],
-                                        masks,
-                                        training=True)
+        fake_offset = tf.zeros(tf.shape(xs)[0], dtype=tf.int32)
+        xs, pos_emb = self.embed([xs, fake_offset], training=training)
+        masks = self.embed.get_mask(xs_lens)
+        masks = tf.expand_dims(masks, axis=2)  # (B, T/subsample_rate, 1)
+
         mask_pad = masks  # (B, T/subsample_rate, 1)
         masks = tf.transpose(masks, [0, 2, 1])  # (B, 1, T/subsample_rate)
         chunk_masks = add_optional_chunk_mask(xs, masks,
@@ -167,7 +165,7 @@ class BaseEncoder(tf.keras.layers.Layer):
         for layer in self.encoders:
             xs, chunk_masks, _, _ = layer([xs, pos_emb, mask_pad, None, None],
                                           chunk_masks,
-                                          training=True)
+                                          training=training)
         if self.normalize_before:
             xs = self.after_norm(xs)
         # Here we assume the mask is not changed in encoder layers, so just
@@ -175,8 +173,7 @@ class BaseEncoder(tf.keras.layers.Layer):
         # for cross attention with decoder later
         return xs, masks
 
-    def forward_chunk_batch(self):
-        # TOO
+    def forwar_chunk_batch(self):
         pass
 
     # helper function for export savedmodel : one uttrance
@@ -217,22 +214,18 @@ class BaseEncoder(tf.keras.layers.Layer):
             tf.Tensor: new conformer cnn cache required for next chunk, with
                 same shape as the original cnn_cache.
         """
-        chunk_mask = make_pad_mask(xs_lens)  # [B, T]
-        chunk_mask = tf.expand_dims(chunk_mask, axis=2)  # [B, T, 1]
         if self.global_cmvn is not None:
             xs = self.global_cmvn(xs)
-        xs, pos_emb, chunk_mask = self.embed(inputs=[xs, offset],
-                                             mask=chunk_mask,
-                                             training=False)
+
         att_cache_shape = tf.shape(att_cache)
         _, cache_t1 = att_cache_shape[0], att_cache_shape[2]
         chunk_size = tf.shape(xs)[1]
         attention_key_size = cache_t1 + chunk_size
-        pos_emb = self.embed.position_encoding(offset=offset - cache_t1,
-                                               size=attention_key_size,
-                                               apply_dropout=False,
-                                               training=False)
 
+        xs, pos_emb = self.embed(inputs=[xs, offset - cache_t1],
+                                 training=False)
+        chunk_mask = self.embed.get_mask(xs_lens)  # [B, T]
+        chunk_mask = tf.expand_dims(chunk_mask, axis=2)  # [B, T, 1]
         next_cache_start = get_next_cache_start(attention_key_size,
                                                 required_cache_size)
         r_att_cache = []
@@ -246,7 +239,7 @@ class BaseEncoder(tf.keras.layers.Layer):
                 training=False,
             )
             r_att_cache.append(new_att_cache[:, :, next_cache_start:, :])
-            r_cnn_cache.append(tf.squeeze(new_cnn_cache, axis=0))
+            r_cnn_cache.append(tf.expand_dims(new_cnn_cache, axis=0))
         if self.normalize_before:
             xs = self.after_norm(xs)
 
@@ -282,12 +275,14 @@ class TransformerEncoder(BaseEncoder):
         See Encoder for the meaning of each parameter.
         """
         assert check_argument_types()
-        super().__init__(input_size, output_size, attention_heads,
-                         linear_units, num_blocks, dropout_rate,
-                         positional_dropout_rate, attention_dropout_rate,
-                         input_layer, pos_enc_layer_type, normalize_before,
-                         concat_after, static_chunk_size, use_dynamic_chunk,
-                         global_cmvn, use_dynamic_left_chunk)
+        super(TransformerEncoder,
+              self).__init__(input_size, output_size, attention_heads,
+                             linear_units, num_blocks, dropout_rate,
+                             positional_dropout_rate, attention_dropout_rate,
+                             input_layer, pos_enc_layer_type, normalize_before,
+                             concat_after, static_chunk_size,
+                             use_dynamic_chunk, global_cmvn,
+                             use_dynamic_left_chunk)
         self.encoders = [
             TransformerEncoderLayer(
                 output_size,
@@ -345,12 +340,14 @@ class ConformerEncoder(BaseEncoder):
             causal (bool): whether to use causal convolution or not.
         """
         assert check_argument_types()
-        super().__init__(input_size, output_size, attention_heads,
-                         linear_units, num_blocks, dropout_rate,
-                         positional_dropout_rate, attention_dropout_rate,
-                         input_layer, pos_enc_layer_type, normalize_before,
-                         concat_after, static_chunk_size, use_dynamic_chunk,
-                         global_cmvn, use_dynamic_left_chunk)
+        super(ConformerEncoder,
+              self).__init__(input_size, output_size, attention_heads,
+                             linear_units, num_blocks, dropout_rate,
+                             positional_dropout_rate, attention_dropout_rate,
+                             input_layer, pos_enc_layer_type, normalize_before,
+                             concat_after, static_chunk_size,
+                             use_dynamic_chunk, global_cmvn,
+                             use_dynamic_left_chunk)
 
         # self-attention module definition
         if pos_enc_layer_type != "rel_pos":
@@ -373,7 +370,8 @@ class ConformerEncoder(BaseEncoder):
         # convolution module definition
         convolution_layer = ConvolutionModule
         convolution_layer_args = (output_size, cnn_module_kernel,
-                                  activation_type, cnn_module_norm, causal)
+                                  activation_type, cnn_module_norm,
+                                  dropout_rate, causal)
 
         self.encoders = [
             ConformerEncoderLayer(

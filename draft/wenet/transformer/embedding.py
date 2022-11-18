@@ -5,6 +5,7 @@ from typing import Tuple
 
 import numpy as np
 import tensorflow as tf
+from tensorflow.python.ops.array_ops import size_v2
 
 # def positional_encoding(length, depth):
 #     depth = depth // 2
@@ -52,15 +53,19 @@ class PositionalEncoding(tf.keras.layers.Layer):
                  max_len: int = 5000,
                  name="positional_encoding",
                  reverse: bool = False,
+                 trainable=False,
                  **kwargs):
         """Construct an PositionalEncoding object."""
-        super().__init__(trainable=False, name=name, **kwargs)
+        super(PositionalEncoding, self).__init__(trainable=trainable,
+                                                 name=name,
+                                                 **kwargs)
+        _ = reverse
         self.d_model = d_model
         self.xscale = math.sqrt(self.d_model)
-        self.dropout = tf.keras.layers.Dropout(rate=dropout_rate)
+        self.dropout_rate = dropout_rate
         self.max_len = max_len
 
-        self.pe = tf.expand_dims(positional_encoding(max_len, d_model), axis=0)
+        self.pe = positional_encoding(max_len, d_model)
 
     def call(self,
              inputs,
@@ -75,20 +80,23 @@ class PositionalEncoding(tf.keras.layers.Layer):
             tf.Tensor: for compatibility to RelPositionalEncoding
         """
         x, offset = inputs
-        pos_emb = self.position_encoding(offset,
-                                         tf.shape(x)[1],
-                                         False,
-                                         training=training)
+        size = tf.shape(x)[1]
+        if training:
+            pos_emb = self.pe[tf.newaxis, :size, :]
+        else:
+            pos_emb = self.position_encoding(offset, size, False)
+
         x = x * self.xscale + pos_emb
-        return self.dropout(x,
-                            training=training), self.dropout(pos_emb,
-                                                             training=training)
+        if training:
+            return tf.nn.dropout(x, self.dropout_rate), tf.nn.dropout(
+                pos_emb, self.dropout_rate)
+        return x, pos_emb
 
     def position_encoding(self,
                           offset: tf.Tensor,
                           size: tf.Tensor,
-                          apply_dropout: bool = True,
-                          training: bool = True) -> tf.Tensor:
+                          apply_dropout: bool = False,
+                          training=False) -> tf.Tensor:
         """ For getting encoding in a streaming fashion
         Attention!!!!!
         we apply dropout only once at the whole utterance level in a none
@@ -101,13 +109,12 @@ class PositionalEncoding(tf.keras.layers.Layer):
         Returns:
             tf.Tensor: Corresponding encoding
         """
-        # tf.assert_less(tf.reduce_max(offset) + size, self.max_len)
-        index = tf.range(0, size) + tf.expand_dims(offset, axis=1)
-        index = tf.where(index > 0, index, 0)
-        pos_emb = tf.nn.embedding_lookup(self.pe[0], index)  # B X T X d_model
+        index = tf.range(0, size) + tf.expand_dims(offset, axis=1)  # [B,size]
+        index = index * tf.cast(index > 0, dtype=index.dtype)
+        pos_emb = tf.nn.embedding_lookup(self.pe, index)  #[B,size,d_model]
 
-        if apply_dropout:
-            pos_emb = self.dropout(pos_emb, training)
+        if apply_dropout and training:
+            return tf.nn.dropout(pos_emb, self.dropout_rate)
         return pos_emb
 
 
@@ -124,13 +131,16 @@ class RelPositionalEncoding(PositionalEncoding):
                  d_model: int,
                  dropout_rate: float,
                  max_len: int = 5000,
-                 name='rel_positional_encoding'):
+                 name='rel_positional_encoding',
+                 **kwargs):
         """Initialize class."""
-        super().__init__(d_model,
-                         dropout_rate,
-                         max_len,
-                         reverse=True,
-                         name=name)
+        super(RelPositionalEncoding, self).__init__(d_model,
+                                                    dropout_rate,
+                                                    max_len,
+                                                    reverse=True,
+                                                    name=name,
+                                                    trainable=False,
+                                                    **kwargs)
 
     def call(self,
              inputs,
@@ -142,17 +152,15 @@ class RelPositionalEncoding(PositionalEncoding):
                   offset (tf.Tensor): [B]
         Returns:
             tf.Tensor: Encoded tensor (batch, time, `*`).
-            tf.Tensor: Positional embedding tensor (1, time, `*`).
+            tf.Tensor: Positional embedding tensor (*, time, `*`).
         """
         x, offset = inputs
         x = x * self.xscale
-        pos_emb = self.position_encoding(offset,
-                                         tf.shape(x)[1],
-                                         False,
-                                         training=training)
-        return self.dropout(x,
-                            training=training), self.dropout(pos_emb,
-                                                             training=training)
+        pos_emb = self.position_encoding(offset, tf.shape(x)[1], False)
+        if training:
+            return tf.nn.dropout(x, self.dropout_rate), tf.nn.dropout(
+                pos_emb, self.dropout_rate)
+        return x, pos_emb
 
 
 class NoPositionalEncoding(tf.keras.layers.Layer):
@@ -162,10 +170,13 @@ class NoPositionalEncoding(tf.keras.layers.Layer):
     def __init__(self,
                  d_model: int,
                  dropout_rate: float,
-                 name='no_position_encoding'):
-        super().__init__(name=name, trainable=False)
+                 name='no_position_encoding',
+                 **kwargs):
+        super(NoPositionalEncoding, self).__init__(name=name,
+                                                   trainable=False,
+                                                   **kwargs)
         self.d_model = d_model
-        self.dropout = tf.keras.layers.Dropout(rate=dropout_rate)
+        self.dropout_rate = dropout_rate
 
     def call(self,
              inputs,
@@ -174,12 +185,15 @@ class NoPositionalEncoding(tf.keras.layers.Layer):
         """
         x, _ = inputs
         pos_emb = tf.zeros([1, tf.shape(x)[1], self.d_model], dtype=tf.float32)
-        return self.dropout(x, training=training), pos_emb
+        if training:
+            return tf.nn.dropout(x, self.dropout_rate), pos_emb
+        return x, pos_emb
 
     def position_encoding(
         self,
         offset: tf.Tensor,
         size: tf.Tensor,
+        **kwargs,
     ) -> tf.Tensor:
         _ = offset
         return tf.zeros([1, size, self.d_model], dtype=tf.float32)

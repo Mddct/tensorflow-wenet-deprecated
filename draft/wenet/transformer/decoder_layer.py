@@ -2,6 +2,7 @@
 from typing import Optional, Tuple
 
 import tensorflow as tf
+from tensorflow._api.v2.nn import dropout
 
 
 class DecoderLayer(tf.keras.layers.Layer):
@@ -59,8 +60,8 @@ class DecoderLayer(tf.keras.layers.Layer):
             epsilon=1e-5,
         )
 
-        self.dropout = tf.keras.layers.Dropout(dropout_rate)
-        self.normalize_before = normalize_before
+        self.dropout_rate = dropout_rate
+        self.pre_norm = normalize_before
         self.concat_after = concat_after
         if self.concat_after:
             # [size+size, size]
@@ -81,9 +82,9 @@ class DecoderLayer(tf.keras.layers.Layer):
         tgt_mask: tf.Tensor,
         memory: tf.Tensor,
         memory_mask: tf.Tensor,
-        cache: Optional[tf.Tensor] = None,
+        att_cache: Optional[tf.Tensor] = None,
         training: bool = True,
-    ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Compute decoded features.
         Args:
             tgt (tf.Tensor): Input tensor (#batch, maxlen_out, size).
@@ -93,49 +94,44 @@ class DecoderLayer(tf.keras.layers.Layer):
                 (#batch, maxlen_in, size).
             memory_mask (tf.Tensor): Encoded memory mask
                 (#batch, maxlen_in).
-            cache (tf.Tensor): cached tensors.
+            att_cache (tf.Tensor): Cache tensor of the KEY & VALUE
+                    (#batch=1, head, cache_t1, d_k * 2), head * d_k == size.
+                valid when training=False
+
                 (#batch, maxlen_out - 1, size).
         Returns:
             tf.Tensor: Output tensor (#batch, maxlen_out, size).
-            tf.Tensor: Mask for output tensor (#batch, maxlen_out).
-            tf.Tensor: Encoded memory (#batch, maxlen_in, size).
-            tf.Tensor: Encoded memory mask (#batch, maxlen_in).
+            tf.Tensor: slef att ache  for output tensor
         """
         residual = tgt
-        if self.normalize_before:
+        if self.pre_norm:
             tgt = self.norm1(tgt)
 
-        if cache is None:
-            tgt_q = tgt
-            tgt_q_mask = tgt_mask
-        else:
-            # compute only the last frame query keeping dim: max_time_out -> 1
-            # assert cache.shape == (
-            #     tgt.shape[0],
-            #     tgt.shape[1] - 1,
-            #     self.size,
-            # ), "{cache.shape} == {(tgt.shape[0], tgt.shape[1] - 1, self.size)}"
-            tgt_q = tgt[:, -1:, :]
-            residual = residual[:, -1:, :]
-            tgt_q_mask = tgt_mask[:, -1:, :]
+        tgt_q = tgt
+        tgt_q_mask = tgt_mask
 
+        # self attention
+        x_att, new_att_cache = self.self_attn(
+            tgt_q,
+            tgt,
+            tgt,
+            tgt_q_mask,
+            training=training,
+        )
         if self.concat_after:
-            tgt_concat = tf.concat([
-                tgt_q,
-                self.self_attn(tgt_q, tgt, tgt, tgt_q_mask,
-                               training=training)[0]
-            ],
-                                   axis=-1)
+            tgt_concat = tf.concat([tgt_q, x_att], axis=-1)
             x = residual + self.concat_linear1(tgt_concat)
         else:
-            x = residual + self.dropout(
-                self.self_attn(tgt_q, tgt, tgt, tgt_q_mask,
-                               training=training)[0])
-        if not self.normalize_before:
+            if training:
+                x = residual + tf.nn.dropout(x_att, rate=self.dropout_rate)
+            else:
+                x = residual + x_att
+        if not self.pre_norm:
             x = self.norm1(x)
 
+        # cross attention
         residual = x
-        if self.normalize_before:
+        if self.pre_norm:
             x = self.norm2(x)
         if self.concat_after:
             x_concat = tf.concat(
@@ -145,21 +141,22 @@ class DecoderLayer(tf.keras.layers.Layer):
                 axis=-1)
             x = residual + self.concat_linear2(x_concat)
         else:
-            x = residual + self.dropout(self.src_attn(
-                x, memory, memory, memory_mask, training=training)[0],
-                                        training=training)
-        if not self.normalize_before:
+            if training:
+                x = residual + tf.nn.approx_max_k.dropout(
+                    self.src_attn(
+                        x, memory, memory, memory_mask, training=training)[0],
+                    rate=self.dropout_rate)
+            else:
+                x = residual + self.src_attn(
+                    x, memory, memory, memory_mask, training=False)
+        if not self.pre_norm:
             x = self.norm2(x)
 
         residual = x
-        if self.normalize_before:
+        if self.pre_norm:
             x = self.norm3(x)
-        x = residual + self.dropout(self.feed_forward(x, training=training),
-                                    training=training)
-        if not self.normalize_before:
+        x = residual + self.feed_forward(x, training=training)
+        if not self.pre_norm:
             x = self.norm3(x)
 
-        if cache is not None:
-            x = tf.concat([cache, x], axis=1)
-
-        return x, tgt_mask, memory, memory_mask
+        return x, new_att_cache

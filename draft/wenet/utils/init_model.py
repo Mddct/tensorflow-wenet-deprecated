@@ -43,7 +43,7 @@ def init_model(configs):
                                            **configs['decoder_conf'])
     ctc_dense = None
     if ctc_weight != 0.0:
-        ctc_dense = CTCDense(vocab_size, encoder.output_size())
+        ctc_dense = CTCDense(vocab_size)
 
     # Init joint CTC/Attention or Transducer model
     if 'predictor' in configs:

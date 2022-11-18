@@ -12,17 +12,21 @@ class GlobalCMVN(tf.keras.layers.Layer):
                  dtype=None,
                  dynamic=False,
                  **kwargs):
-        super().__init__(trainable, name, dtype, dynamic, **kwargs)
+        super(GlobalCMVN, self).__init__(trainable, name, dtype, dynamic,
+                                         **kwargs)
 
         self.norm_var = norm_var
-        # self.mean = mean
-        # self.istd = istd
-        self.istd = tf.Variable(istd, dtype=istd.dtype)
-        self.mean = tf.Variable(mean, dtype=mean.dtype)
+        self.istd = tf.Variable(istd,
+                                dtype=istd.dtype,
+                                trainable=trainable,
+                                name='istd')
+        self.mean = tf.Variable(mean,
+                                dtype=mean.dtype,
+                                trainable=trainable,
+                                name='mean')
 
     def call(self, inputs):
-        x = inputs
-        x = tf.subtract(x, self.mean)
+        inputs = tf.subtract(inputs, self.mean)
         if self.norm_var:
-            x = tf.multiply(x, self.istd)
-        return x
+            inputs = tf.multiply(inputs, self.istd)
+        return inputs

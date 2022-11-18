@@ -54,10 +54,7 @@ class ASRModel(tf.keras.Model):
 
         speech, speech_lengths, text, text_lengths = inputs
         # 1. Encoder
-        speech_mask = tf.expand_dims(tf.sequence_mask(speech_lengths),
-                                     axis=2)  # (B, T, 1)
-        encoder_out, encoder_mask = self.encoder(inputs=speech,
-                                                 mask=speech_mask)
+        encoder_out, encoder_mask = self.encoder([speech, speech_lengths])
         encoder_out_lens = tf.reduce_sum(tf.cast(tf.squeeze(encoder_mask,
                                                             axis=1),
                                                  dtype=text_lengths.dtype),

@@ -793,7 +793,7 @@ class SpectrumAugmenter():
         """Applies data augmentation by randomly mask spectrum in inputs.
         Args:
           inputs: A tensor of shape [batch, time, freq].
-          paddings: A 0/1 tensor of shape [batch, time].
+          seq_len: A 0/1 tensor of shape [time].
         Returns:
           A pair of 2 tensors:
           - augmented_inputs: A tensor of shape [batch, time, freq].

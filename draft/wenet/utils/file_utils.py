@@ -3,7 +3,7 @@ import os
 import tensorflow as tf
 
 
-def read_symbol_table(symbol_table_file):
+def read_symbol_table(symbol_table_file) -> Tuple[List, List]:
     word = []
     ids = []
     with open(symbol_table_file, 'r', encoding='utf8') as fin:
@@ -12,7 +12,7 @@ def read_symbol_table(symbol_table_file):
             assert len(arr) == 2
             word.append(arr[0])
             ids.append(int(arr[1]))
-        return word, ids
+    return word, ids
 
 
 def read_lists(list_file):

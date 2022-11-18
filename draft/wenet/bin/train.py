@@ -13,6 +13,7 @@ from wenet.utils.executor import AsrTrainer
 from wenet.utils.file_utils import distributed_write_filepath, is_chief
 from wenet.utils.init_model import init_model
 from wenet.utils.scheduler import TransformerLearningRateSchedule
+from wenet.utils.file_utils import read_symbol_table
 
 FLAGS = flags.FLAGS
 
@@ -51,7 +52,7 @@ flags.DEFINE_integer('checkpoint_interval',
                      help='the minimum step interval between two checkpoints.')
 flags.DEFINE_enum(
     'dist_strategy',
-    default='one_device',
+    default='mirrored',
     enum_values=[
         "one_device",
         "mirrored",
@@ -73,7 +74,7 @@ def main(argv):
 
     num_gpus = 0
     if os.environ['CUDA_VISIBLE_DEVICES'] is not None:
-        num_gpus = len(os.environ['CUDA_VISIBLE_DEVIDES'].split(","))
+        num_gpus = len(os.environ['CUDA_VISIBLE_DEVICES'].split(","))
     strategy = get_distribution_strategy(
         FLAGS.dist_strategy,
         num_gpus=num_gpus,
@@ -84,6 +85,7 @@ def main(argv):
     global_batch_size = dataset_conf['batch_conf'][
         'batch_size'] * strategy.num_replicas_in_sync
 
+    words, ids = read_symbol_table(symbol_table_path)
     train_dataset, vocab_size = Dataset(
         dataset_conf,
         FLAGS.symbol_table,

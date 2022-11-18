@@ -2,3 +2,4 @@ tensorflow
 tensorflow-io
 typeguard
 pyyaml
+tensorflow-text

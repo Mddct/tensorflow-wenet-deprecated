@@ -19,8 +19,8 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
             n_head: int,
             n_feat: int,
             dropout_rate: float,
-            bias_regularizer=tf.keras.regularizers.l2(1e-6),
-            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+            bias_regularizer="l2",
+            kernel_regularizer="l2",
     ):
         """Construct an MultiHeadedAttention object."""
         super().__init__()
@@ -129,11 +129,6 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
                 weighted by the attention score (#batch, time1, time2).
         """
         n_batch = tf.shape(value)[0]
-        # mask = tf.equal(tf.expand_dims(mask, axis=1), 0)
-        # mask = mask[:, :, :, :tf.shape(scores)[-1]]
-        # scores = tf.where(mask, -float('inf'), scores)
-        # attn = tf.nn.softmax(scores, axis=-1)  # (batch, head, time1, time2)
-
         if training:
             mask = tf.expand_dims(mask, axis=1)  # [B,1, *, time2]
             attn = mask_softmax(scores, mask, name='attention_weights')
@@ -142,10 +137,10 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
             # but for batch streamming inference mask is necessary
             # TODO: fix
             attn = tf.nn.softmax(scores, axis=-1, name='attention_weights')
-        p_attn = self.dropout(attn, training)
-        x = tf.matmul(p_attn, value)  # (batch, head, time1, d_k)
+        p_attn = self.dropout(attn, training) #[]
+        x = tf.matmul(p_attn, value)  # [batch, head, time1, d_k]
         x = tf.reshape(
-            tf.transpose(x, [0, 1, 3, 2]),
+            tf.transpose(x, [0, 2, 1, 3]),
             [n_batch, -1, self.h * self.d_k])  # (batch, time1, d_model)
         return self.linear_out(x)  # (batch, time1, d_model)
 
@@ -185,15 +180,12 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         """
         q, k, v = self.forward_qkv(query, key, value)
         if not training and cache is not None:
-            key_cache, value_cache = tf.split(cache,
-                                              cache.size(-1) // 2,
-                                              axis=-1)
+            key_cache, value_cache = tf.split(cache, 2, axis=-1)
             k = tf.concat([key_cache, k], axis=2)
             v = tf.concat([value_cache, v], axis=2)
-        # NOTE(xcsong): We do cache slicing in encoder.forward_chunk, since it's
-        #   non-trivial to calculate `next_cache_start` here.
+
         new_cache = tf.concat((k, v), axis=-1)
-        depth = self.d_k**-0.5
+        depth = self.d_k**(-0.5)
         scores = tf.matmul(q * depth, tf.transpose(k, [0, 1, 3, 2]))
         return self.forward_attention(v, scores, mask), new_cache
 
@@ -244,10 +236,12 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         )
         self.pos_bias_u = self.add_weight(initializer=XavierUniform(
             shape=[self.h, self.d_k], dtype=tf.float32),
-                                          regularizer=bias_regularizer)
+                                          regularizer=bias_regularizer,
+                                          name='pos_bias_u')
         self.pos_bias_v = self.add_weight(initializer=XavierUniform(
             shape=[self.h, self.d_k], dtype=tf.float32),
-                                          regularizer=bias_regularizer)
+                                          regularizer=bias_regularizer,
+                                          name='pos_bias_v')
 
     def rel_shift_(self, x, zero_triu: bool = False):
         x_size = tf.shape(x)
@@ -293,10 +287,8 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         q, k, v = self.forward_qkv(query, key, value)
         q = tf.transpose(q, [0, 2, 1, 3])  # (batch, time1, head, d_k)
 
-        if not training and cache is not None:
-            key_cache, value_cache = tf.split(cache,
-                                              tf.shape(cache)[-1] // 2,
-                                              axis=-1)
+        if not training:
+            key_cache, value_cache = tf.split(cache, 2, axis=-1)
             k = tf.concat([key_cache, k], axis=2)
             v = tf.concat([value_cache, v], axis=2)
 
@@ -316,7 +308,7 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         # first compute matrix a and matrix c
         # as described in https://arxiv.org/abs/1901.02860 Section 3.3
         # (batch, head, time1, time2)
-        depth = self.d_k**0.5
+        depth = self.d_k**(-0.5)
         matrix_ac = tf.matmul(q_with_bias_u * depth,
                               tf.transpose(k, [0, 1, 3, 2]))
 

@@ -1,25 +1,43 @@
 """Subsampling layer definition."""
 
-from typing import Optional, Tuple
+from typing import Tuple, Union
 
 import tensorflow as tf
+from wenet.transformer.embedding import NoPositionalEncoding, PositionalEncoding, RelPositionalEncoding
 from wenet.transformer.activations import ActivationLayer
 
 
 class BaseSubsampling(tf.keras.layers.Layer):
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, dropout_rate, **kwargs):
+        super(BaseSubsampling, self).__init__(**kwargs)
         self.right_context = 0
         self.subsampling_rate = 1
+        self.dropout_rate = dropout_rate
 
     def position_encoding(self,
                           offset: tf.Tensor,
                           size: tf.Tensor,
-                          apply_dropout: bool = True,
+                          apply_dropout: bool = False,
                           training: bool = True) -> tf.Tensor:
         return self.pos_enc.position_encoding(offset, size, apply_dropout,
                                               training)
+
+    def compute_mask_length(self,
+                            length,
+                            kernel_size: int = 3,
+                            stride: int = 2,
+                            dilation: int = 1,
+                            padding: int = 0):
+        """
+        Args:
+           length: [B], tf.Tensor
+        """
+
+        # return tf.math.floordiv((length + 2 * padding - dilation *
+        # (kernel_size - 1) - 1), stride) + 1
+        return (length + 2 * padding - dilation *
+                (kernel_size - 1) - 1) // stride + 1
 
 
 class LinearNoSubsampling(BaseSubsampling):
@@ -30,16 +48,19 @@ class LinearNoSubsampling(BaseSubsampling):
     """
 
     def __init__(
-            self,
-            idim: int,
-            odim: int,
-            dropout_rate: float,
-            pos_enc_class: tf.keras.layers.Layer,
-            bias_regularizer=tf.keras.regularizers.l2(1e-6),
-            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+        self,
+        idim: int,
+        odim: int,
+        dropout_rate: float,
+        pos_enc_class: Union[PositionalEncoding, RelPositionalEncoding,
+                             NoPositionalEncoding],
+        bias_regularizer="l2",
+        kernel_regularizer="l2",
+        **kwargs,
     ):
         """Construct an linear object."""
-        super().__init__()
+        super(LinearNoSubsampling, self).__init__(dropout_rate=dropout_rate,
+                                                  **kwargs)
         self.out = tf.keras.Sequential([
             tf.keras.layers.Input(shape=[None, idim, 1]),
             tf.keras.layers.Dense(
@@ -52,7 +73,6 @@ class LinearNoSubsampling(BaseSubsampling):
                 beta_regularizer=kernel_regularizer,
                 gamma_regularizer=kernel_regularizer,
             ),
-            tf.keras.layers.Dropout(dropout_rate),
         ])
 
         self.pos_enc = pos_enc_class
@@ -62,9 +82,8 @@ class LinearNoSubsampling(BaseSubsampling):
     def call(
         self,
         inputs: tf.Tensor,
-        mask: Optional[tf.Tensor] = None,
         training: bool = True,
-    ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Input x.
         Args:
             inputs:
@@ -74,14 +93,17 @@ class LinearNoSubsampling(BaseSubsampling):
         Returns:
             tf.Tensor: linear input tensor (#batch, time', odim),
                 where time' = time .
-            tf.Tensor: linear input mask (#batch, time', 1),
-                where time' = time .
+            tf.Tensor: pos embedding
         """
         x, offset = inputs
-        x = self.out(x)
-        x = self.dropout(x, training=training)
+        x = self.out(x, training=training)
+        if training:
+            x = tf.nn.dropout(x, self.dropout_rate)
         x, pos_emb = self.pos_enc((x, offset), training=training)
-        return x, pos_emb, mask
+        return x, pos_emb
+
+    def get_mask(self, lens, mask=None):
+        return tf.sequence_mask(lens)
 
 
 class Conv2dSubsampling4(BaseSubsampling):
@@ -93,16 +115,19 @@ class Conv2dSubsampling4(BaseSubsampling):
     """
 
     def __init__(
-            self,
-            idim: int,
-            odim: int,
-            dropout_rate: float,
-            pos_enc_class: tf.keras.layers.Layer,
-            bias_regularizer=tf.keras.regularizers.l2(1e-6),
-            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+        self,
+        idim: int,
+        odim: int,
+        dropout_rate: float,
+        pos_enc_class: Union[PositionalEncoding, RelPositionalEncoding,
+                             NoPositionalEncoding],
+        bias_regularizer="l2",
+        kernel_regularizer="l2",
+        **kwargs,
     ):
         """Construct an Conv2dSubsampling4 object."""
-        super().__init__()
+        super(Conv2dSubsampling4, self).__init__(dropout_rate=dropout_rate,
+                                                 **kwargs)
         self.conv = tf.keras.Sequential([
             tf.keras.layers.Input(shape=[None, idim, 1]),
             tf.keras.layers.Conv2D(
@@ -123,8 +148,6 @@ class Conv2dSubsampling4(BaseSubsampling):
             ActivationLayer('relu'),
         ])
 
-        # torch.nn.Conv2d(1, odim, 3, 2),
-        # torch.nn.Conv2d(odim, odim, 3, 2),
         # input dim should  == odim * (((idim - 1) // 2 - 1) // 2)
         self.out = tf.keras.layers.Dense(
             odim,
@@ -141,9 +164,8 @@ class Conv2dSubsampling4(BaseSubsampling):
     def call(
         self,
         inputs: tf.Tensor,
-        mask: Optional[tf.Tensor] = None,
         training: bool = True,
-    ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Subsample x.
         Args:
             inputs:
@@ -166,8 +188,16 @@ class Conv2dSubsampling4(BaseSubsampling):
         b, t, f, c = x_shape[0], x_shape[1], x_shape[2], x_shape[3]
 
         x = self.out(tf.reshape(x, [b, t, f * c]))
+        if training:
+            x = tf.nn.dropout(x, self.dropout_rate)
         x, pos_emb = self.pos_enc((x, offset), training=training)
-        return x, pos_emb, mask[:, :-2:2, :][:, :-2:2, :]
+        return x, pos_emb
+
+    def get_mask(self, lens, mask=None):
+        lens = self.compute_mask_length(lens, kernel_size=3, stride=2)
+        lens = self.compute_mask_length(lens, kernel_size=3, stride=2)
+        mask = tf.sequence_mask(lens)
+        return mask
 
 
 class Conv2dSubsampling6(BaseSubsampling):
@@ -180,16 +210,18 @@ class Conv2dSubsampling6(BaseSubsampling):
     """
 
     def __init__(
-            self,
-            idim: int,
-            odim: int,
-            dropout_rate: float,
-            pos_enc_class: tf.keras.layers.Layer,
-            bias_regularizer=tf.keras.regularizers.l2(1e-6),
-            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+        self,
+        idim: int,
+        odim: int,
+        dropout_rate: float,
+        pos_enc_class: Union[PositionalEncoding, RelPositionalEncoding,
+                             NoPositionalEncoding],
+        bias_regularizer="l2",
+        kernel_regularizer="l2",
+        **kwargs,
     ):
         """Construct an Conv2dSubsampling6 object."""
-        super().__init__()
+        super(Conv2dSubsampling6, self).__init__(**kwargs)
         self.conv = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(None, idim, 1)),
             tf.keras.layers.Conv2D(
@@ -223,9 +255,8 @@ class Conv2dSubsampling6(BaseSubsampling):
     def call(
         self,
         inputs: tf.Tensor,
-        mask: Optional[tf.Tensor] = None,
         training: bool = True,
-    ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Subsample x.
         Args:
             inputs:
@@ -249,8 +280,17 @@ class Conv2dSubsampling6(BaseSubsampling):
         b, t, f, c = x_shape[0], x_shape[1], x_shape[2], x_shape[3]
 
         x = self.out(tf.reshape(x, [b, t, f * c]))
+        if training:
+            x = tf.nn.dropout(x, self.dropout_rate)
         x, pos_emb = self.pos_enc((x, offset), training=training)
-        return x, pos_emb, mask[:, :-2:2, :][:, :-4:3, :]
+        # return x, pos_emb, mask[:, :-2:2, :][:, :-4:3, :]
+        return x, pos_emb
+
+    def get_mask(self, lens, mask=None):
+        lens = self.compute_mask_length(lens, kernel_size=3, stride=2)
+        lens = self.compute_mask_length(lens, kernel_size=5, stride=3)
+        mask = tf.sequence_mask(lens)
+        return mask
 
 
 class Conv2dSubsampling8(BaseSubsampling):
@@ -262,16 +302,17 @@ class Conv2dSubsampling8(BaseSubsampling):
     """
 
     def __init__(
-            self,
-            idim: int,
-            odim: int,
-            dropout_rate: float,
-            pos_enc_class: tf.keras.layers.Layer,
-            bias_regularizer=tf.keras.regularizers.l2(1e-6),
-            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+        self,
+        idim: int,
+        odim: int,
+        dropout_rate: float,
+        pos_enc_class: tf.keras.layers.Layer,
+        bias_regularizer="l2",
+        kernel_regularizer="l2",
+        **kwargs,
     ):
         """Construct an Conv2dSubsampling8 object."""
-        super().__init__()
+        super(Conv2dSubsampling8, self).__init__(**kwargs)
         self.conv = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(None, idim, 1)),
             tf.keras.layers.Conv2D(
@@ -314,9 +355,8 @@ class Conv2dSubsampling8(BaseSubsampling):
     def call(
         self,
         inputs: tf.Tensor,
-        mask: Optional[tf.Tensor] = None,
         training: bool = True,
-    ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Subsample x.
         Args:
             inputs:
@@ -338,5 +378,14 @@ class Conv2dSubsampling8(BaseSubsampling):
         b, t, f, c = x_shape[0], x_shape[1], x_shape[2], x_shape[3]
 
         x = self.out(tf.reshape(x, [b, t, f * c]))
+        if training:
+            x = tf.nn.dropout(x, self.dropout_rate)
         x, pos_emb = self.pos_enc((x, offset), training=training)
-        return x, pos_emb, mask[:, :-2:2, :][:, :-2:2, :][:, :-2:2, :]
+        # return x, pos_emb, mask[:, :-2:2, :][:, :-2:2, :][:, :-2:2, :]
+        return x, pos_emb
+
+    def get_mask(self, lens, mask=None):
+        lens = self.compute_conv_length(lens, kernel_size=3, stride=2)
+        lens = self.compute_conv_length(lens, kernel_size=3, stride=2)
+        lens = self.compute_conv_length(lens, kernel_size=3, stride=2)
+        return tf.sequence_mask(lens)

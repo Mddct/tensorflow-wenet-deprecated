@@ -9,24 +9,27 @@ from wenet.transformer.activations import ActivationLayer
 class ConvolutionModule(tf.keras.layers.Layer):
     """ConvolutionModule in Conformer model."""
 
-    def __init__(self,
-                 channels: int,
-                 kernel_size: int = 15,
-                 activation: str = 'swish',
-                 norm: str = "batch_norm",
-                 dropout_rate: float = 0.1,
-                 causal: bool = False,
-                 bias: bool = True,
-                 bias_regularizer=tf.keras.regularizers.l2(1e-6),
-                 kernel_regularizer=tf.keras.regularizers.l2(1e-6),
-                 name="conv_module"):
+    def __init__(
+        self,
+        channels: int,
+        kernel_size: int = 15,
+        activation: str = 'swish',
+        norm: str = "batch_norm",
+        dropout_rate: float = 0.1,
+        causal: bool = False,
+        bias: bool = True,
+        bias_regularizer="l2",
+        kernel_regularizer="l2",
+        name="conv_module",
+        **kwargs,
+    ):
         """Construct an ConvolutionModule object.
         Args:
             channels (int): The number of channels of conv layers.
             kernel_size (int): Kernel size of conv layers.
             causal (int): Whether use causal convolution or not
         """
-        super(ConvolutionModule, self).__init__(name=name)
+        super(ConvolutionModule, self).__init__(name=name, **kwargs)
 
         self.pointwise_conv1 = tf.keras.layers.Conv1D(
             2 * channels,
@@ -71,12 +74,14 @@ class ConvolutionModule(tf.keras.layers.Layer):
                 gamma_regularizer=kernel_regularizer,
                 beta_regularizer=bias_regularizer,
                 axis=-1,  # channels last
+                epsilon=1e-6,
             )
         else:
             self.norm = tf.keras.layers.LayerNormalization(
                 name=f"{name}_ln",
                 gamma_regularizer=kernel_regularizer,
                 beta_regularizer=bias_regularizer,
+                epsilon=1e-6,
             )
 
         self.pointwise_conv2 = tf.keras.layers.Conv1D(
@@ -96,13 +101,14 @@ class ConvolutionModule(tf.keras.layers.Layer):
 
     def call(self,
              inputs,
-             cache: Optional[tf.Tensor] = None,
+             mask=None,
+             cache=None,
              training: bool = True) -> Tuple[tf.Tensor, tf.Tensor]:
         """Compute convolution module.
         Args:
             inputs:
                 x (tf.Tensor): Input tensor (#batch, time, channels).
-                # mask_pad (tf.Tensor): used for batch padding (#batch, time, 1),
+                mask_pad (tf.Tensor): used for batch padding (#batch, time, 1),
                 cache (tf.Tensor Optional): left context cache, it is only
                     used in causal convolution (#batch, cache_t, channels),
                     only valid when training == false
@@ -111,26 +117,19 @@ class ConvolutionModule(tf.keras.layers.Layer):
         """
         # exchange the temporal dimension and the feature dimension
 
-        # mask batch padding
-        # if mask_pad.size(2) > 0:  # time > 0
-        #     x.masked_fill_(~mask_pad, 0.0)
-        if len(inputs) == 2:
-            x, cache = inputs
-        else:
-            x, mask_pad, cache = inputs
-
-        input = x
+        x = inputs
         if self.lorder > 0:
             if training:  # cache_t == 0
                 x = tf.pad(x, ([0, 0], [self.lorder, 0], [0, 0]))  # pad zero
             else:
                 x = tf.concat((cache, x), axis=1)
             # assert (x.size(2) > self.lorder)
-            cache = x[:, -self.lorder:, :]
+            new_cache = x[:, -self.lorder:, :]
         else:
             # mask batch padding
             # x = tf.where(mask_pad, x, 0.0)
-            x = x * tf.cast(mask_pad, dtype=x.dtype)
+            x = x * tf.cast(mask, dtype=x.dtype)
+            new_cache = tf.zeros([0, 0, 0], dtype=x.dtype)
 
         # GLU mechanism
         x = self.pointwise_conv1(x,
@@ -143,8 +142,7 @@ class ConvolutionModule(tf.keras.layers.Layer):
         x = self.pointwise_conv2(x, training=training)
         x = self.dropout(x, training=training)
 
-        x = x + input
         # mask batch padding
         if self.lorder == 0:
-            x = x * tf.cast(mask_pad, dtype=x.dtype)
-        return x, cache
+            x = x * tf.cast(mask, dtype=x.dtype)
+        return x, new_cache
