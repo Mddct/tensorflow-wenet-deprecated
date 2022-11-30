@@ -82,6 +82,7 @@ class LinearNoSubsampling(BaseSubsampling):
     def call(
         self,
         inputs: tf.Tensor,
+        offset: tf.Tensor,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Input x.
@@ -95,15 +96,15 @@ class LinearNoSubsampling(BaseSubsampling):
                 where time' = time .
             tf.Tensor: pos embedding
         """
-        x, offset = inputs
+        x = inputs
         x = self.out(x, training=training)
         if training:
             x = tf.nn.dropout(x, self.dropout_rate)
-        x, pos_emb = self.pos_enc((x, offset), training=training)
+        x, pos_emb = self.pos_enc(x, offset, training=training)
         return x, pos_emb
 
-    def get_mask(self, lens, mask=None):
-        return tf.sequence_mask(lens)
+    def get_mask(self, lens, dtype=tf.bool):
+        return tf.sequence_mask(lens, dtype=dtype)
 
 
 class Conv2dSubsampling4(BaseSubsampling):
@@ -164,6 +165,7 @@ class Conv2dSubsampling4(BaseSubsampling):
     def call(
         self,
         inputs: tf.Tensor,
+        offset: tf.Tensor,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Subsample x.
@@ -178,7 +180,7 @@ class Conv2dSubsampling4(BaseSubsampling):
                 where time' = time // 4.
             tf.Tensor: positional encoding
         """
-        x, offset = inputs
+        x = inputs
         x = tf.expand_dims(x, axis=3)  # (b, t, f, 1)
         # x = self.conv1(x)  # (b, t', f', 1)
         # x = tf.nn.relu(x)
@@ -190,13 +192,13 @@ class Conv2dSubsampling4(BaseSubsampling):
         x = self.out(tf.reshape(x, [b, t, f * c]))
         if training:
             x = tf.nn.dropout(x, self.dropout_rate)
-        x, pos_emb = self.pos_enc((x, offset), training=training)
+        x, pos_emb = self.pos_enc(x, offset, training=training)
         return x, pos_emb
 
-    def get_mask(self, lens, mask=None):
+    def get_mask(self, lens, dtype=tf.bool):
         lens = self.compute_mask_length(lens, kernel_size=3, stride=2)
         lens = self.compute_mask_length(lens, kernel_size=3, stride=2)
-        mask = tf.sequence_mask(lens)
+        mask = tf.sequence_mask(lens, dtype=dtype)
         return mask
 
 
@@ -255,6 +257,7 @@ class Conv2dSubsampling6(BaseSubsampling):
     def call(
         self,
         inputs: tf.Tensor,
+        offset: tf.Tensor,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Subsample x.
@@ -270,7 +273,7 @@ class Conv2dSubsampling6(BaseSubsampling):
                 where time' = time // 6.
             tf.Tensor: positional encoding
         """
-        x, offset = inputs
+        x = inputs
         x = tf.expand_dims(x, axis=3)  # (b, t, f, 1)
         # x = self.conv1(x)  # (b, t', f', 1)
         # x = tf.nn.relu(x)
@@ -282,14 +285,14 @@ class Conv2dSubsampling6(BaseSubsampling):
         x = self.out(tf.reshape(x, [b, t, f * c]))
         if training:
             x = tf.nn.dropout(x, self.dropout_rate)
-        x, pos_emb = self.pos_enc((x, offset), training=training)
+        x, pos_emb = self.pos_enc(x, offset, training=training)
         # return x, pos_emb, mask[:, :-2:2, :][:, :-4:3, :]
         return x, pos_emb
 
-    def get_mask(self, lens, mask=None):
+    def get_mask(self, lens, dtype=tf.bool):
         lens = self.compute_mask_length(lens, kernel_size=3, stride=2)
         lens = self.compute_mask_length(lens, kernel_size=5, stride=3)
-        mask = tf.sequence_mask(lens)
+        mask = tf.sequence_mask(lens, dtype=dtype)
         return mask
 
 
@@ -355,6 +358,7 @@ class Conv2dSubsampling8(BaseSubsampling):
     def call(
         self,
         inputs: tf.Tensor,
+        offset: tf.Tensor,
         training: bool = True,
     ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Subsample x.
@@ -371,7 +375,7 @@ class Conv2dSubsampling8(BaseSubsampling):
             tf.Tensor: positional encoding
         """
 
-        x, offset = inputs
+        x = inputs
         x = tf.expand_dims(x, axis=3)  # (b, t, f, 1)
         x = self.conv(x)
         x_shape = tf.shape(x)
@@ -380,12 +384,12 @@ class Conv2dSubsampling8(BaseSubsampling):
         x = self.out(tf.reshape(x, [b, t, f * c]))
         if training:
             x = tf.nn.dropout(x, self.dropout_rate)
-        x, pos_emb = self.pos_enc((x, offset), training=training)
+        x, pos_emb = self.pos_enc(x, offset, training=training)
         # return x, pos_emb, mask[:, :-2:2, :][:, :-2:2, :][:, :-2:2, :]
         return x, pos_emb
 
-    def get_mask(self, lens, mask=None):
+    def get_mask(self, lens, dtype=tf.bool):
         lens = self.compute_conv_length(lens, kernel_size=3, stride=2)
         lens = self.compute_conv_length(lens, kernel_size=3, stride=2)
         lens = self.compute_conv_length(lens, kernel_size=3, stride=2)
-        return tf.sequence_mask(lens)
+        return tf.sequence_mask(lens, dtype=dtype)

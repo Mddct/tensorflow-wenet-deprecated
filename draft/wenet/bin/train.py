@@ -1,7 +1,5 @@
 import os
 
-from tensorflow.python.eager.context import num_gpus
-
 from wenet.utils.distribute_utils import get_distribution_strategy
 
 import orbit
@@ -50,6 +48,13 @@ flags.DEFINE_integer('max_to_keep', default=100, help='max to keep checkpoint')
 flags.DEFINE_integer('checkpoint_interval',
                      default=100,
                      help='the minimum step interval between two checkpoints.')
+flags.DEFINE_integer('steps_per_loop',
+                     default=100,
+                     help='the step interval for inner loop')
+
+flags.DEFINE_integer('max_steps',
+                     default=100,
+                     help='the total max steps for training')
 flags.DEFINE_enum(
     'dist_strategy',
     default='mirrored',
@@ -85,7 +90,6 @@ def main(argv):
     global_batch_size = dataset_conf['batch_conf'][
         'batch_size'] * strategy.num_replicas_in_sync
 
-    words, ids = read_symbol_table(symbol_table_path)
     train_dataset, vocab_size = Dataset(
         dataset_conf,
         FLAGS.symbol_table,
@@ -115,8 +119,7 @@ def main(argv):
         # scheduler
         learning_rate = TransformerLearningRateSchedule(
             configs['optim_conf']['lr'],
-            # TODO
-            256.0,
+            configs['encoder_conf']['output_size'],
             configs['scheduler_conf']['warmup_steps'],
         )
         optimizer = tf.keras.optimizers.Adam(
@@ -128,13 +131,13 @@ def main(argv):
         )
         # metrics
         # TODO: wer metrics
-        metrics = {'loss': tf.keras.metrics.Sum('loss', dtype=tf.float32)}
+        metrics = {'loss': tf.keras.metrics.Mean('loss', dtype=tf.float32)}
         if ctc_weight != 0.0:
-            metrics['loss_ctc'] = tf.keras.metrics.Sum('loss_ctc',
-                                                       dtype=tf.float32)
+            metrics['loss_ctc'] = tf.keras.metrics.Mean('loss_ctc',
+                                                        dtype=tf.float32)
         if ctc_weight != 1.0:
-            metrics['loss_att'] = tf.keras.metrics.Sum('loss_att',
-                                                       dtype=tf.float32)
+            metrics['loss_att'] = tf.keras.metrics.Mean('loss_att',
+                                                        dtype=tf.float32)
         # checkpoint
         checkpoint_dir = distributed_write_filepath(FLAGS.model_dir, strategy)
         checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
@@ -163,24 +166,15 @@ def main(argv):
         )
         controller = orbit.Controller(
             trainer=trainer,
-            steps_per_loop=10,
+            steps_per_loop=FLAGS.steps_per_loop,
             global_step=trainer.optimizer.iterations,
             checkpoint_manager=checkpoint_manager,
             summary_interval=configs['log_interval'],
             summary_dir=os.path.join(checkpoint_dir, "tensorboard"),
         )
-        controller.train(configs['max_steps'])
+        controller.train(FLAGS.max_steps)
 
-    # # TODO: train and continous evaluate
-    # train(model,
-    #       train_dataset,
-    #       optimizer,
-    #       strategy=strategy,
-    #       checkpoint_dir=distributed_write_filepath(FLAGS.model_dir, strategy),
-    #       checkpoint_path_or_latest=FLAGS.checkpoint,
-    #       global_batch_size=global_batch_size,
-    #       max_to_keep=FLAGS.max_to_keep,
-    #       log_interval=configs['log_interval'])
+        # TODO: train and continous evaluate
 
 
 if __name__ == '__main__':

@@ -1,8 +1,6 @@
 """Encoder self-attention layer definition."""
 
-from typing import Optional, Tuple
-from keras.backend_config import epsilon
-
+from typing import Optional
 import tensorflow as tf
 
 
@@ -69,10 +67,15 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
     def call(
         self,
         inputs: tf.Tensor,
-        mask: Optional[tf.Tensor] = None,
+        pos_emb: tf.Tensor,
+        attention_bias: tf.Tensor,
+        conv_mask,
+        att_cache=None,
+        cnn_cache=None,
         training: bool = True,
-    ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
+    ) -> tf.Tensor:
         """Compute encoded features.
+
         Args:
             inputs:
                 x (tf.Tensor): (#batch, time, size)
@@ -86,22 +89,18 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
 
         Returns:
             tf.Tensor: Output tensor (#batch, time, size).
-            tf.Tensor: Mask tensor (#batch, time, time).
-            tf.Tensor: att_cache tensor,
-                (#batch=1, head, cache_t1 + time, d_k * 2).
-            tf.Tensor: cnn_cahce tensor (#batch=1, size, cache_t2).
         """
-        x, _, _, att_cache, _ = inputs
+        x = inputs
         residual = x
         if self.pre_nrom:
             x = self.norm1(x)
 
-        x_att, new_att_cache = self.self_attn(x,
-                                              x,
-                                              x,
-                                              mask,
-                                              cache=att_cache,
-                                              training=training)
+        x_att = self.self_attn(x,
+                               x,
+                               x,
+                               attention_bias,
+                               cache=att_cache,
+                               training=training)
         if self.concat_after:
             x_concat = tf.concat((x, x_att), axis=-1)
             if training:
@@ -125,8 +124,7 @@ class TransformerEncoderLayer(tf.keras.layers.Layer):
         if not self.pre_nrom:
             x = self.norm2(x)
 
-        fake_cnn_cache = tf.zeros((0, 0, 0), dtype=x.dtype)
-        return x, mask, new_att_cache, fake_cnn_cache
+        return x
 
 
 class ConformerEncoderLayer(tf.keras.layers.Layer):
@@ -188,7 +186,7 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
         self.norm_mha = tf.keras.layers.LayerNormalization(
             gamma_regularizer=kernel_regularizer,
             beta_regularizer=bias_regularizer,
-            ellipsis=1e-6,
+            epsilon=1e-6,
         )
 
         self.macaron = True if feed_forward_macaron is not None else False
@@ -231,9 +229,13 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
     def call(
         self,
         inputs: tf.Tensor,
-        mask: Optional[tf.Tensor] = None,
+        pos_emb: tf.Tensor,
+        attention_bias: tf.Tensor,
+        conv_mask: tf.Tensor,
+        att_cache=None,
+        cnn_cache=None,
         training: bool = True,
-    ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
+    ) -> tf.Tensor:
         """Compute encoded features.
         Args:
             inputs:
@@ -242,23 +244,22 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
                     for ConformerEncoderLayer.
                 mask_pad (tf.Tensor): batch padding mask used for conv module.
                     (#batch, time,1 )
-                att_cache (tf.Tensor): Cache tensor of the KEY & VALUE
-                    (#batch=1, head, cache_t1, d_k * 2), head * d_k == size.
+                att_cache (dict): (Used during prediction) A dictionary with tensors containing
+            results of previous attentions. The dictionary must have the items:
+            {"k": tensor with shape [batch_size, i, heads, dim_per_head],
+            "v": tensor with shape [batch_size, i, heads, dim_per_head]} where
+            i is the current decoded length for non-padded decode, or max
+            sequen
+
                 cnn_cache (tf.Tensor): Convolution cache in conformer layer
                     (#batch=1, size, cache_t2)
             mask (tf.Tensor): Mask tensor for the input (#batch, time，time),
 
         Returns:
             tf.Tensor: Output tensor (#batch, time, size).
-            tf.Tensor: Mask tensor (#batch, time, time).
-            tf.Tensor: att_cache tensor,
-                (#batch=1, head, cache_t1 + time, d_k * 2).
-                valid when training=False
-            tf.Tensor: cnn_cahce tensor (#batch, size, cache_t2).
-                valid when training=False
         """
 
-        x, pos_emb, mask_pad, att_cache, cnn_cache = inputs
+        x = inputs
         # whether to use macaron style
         if self.macaron:
             residual = x
@@ -274,13 +275,13 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
         if self.pre_norm:
             x = self.norm_mha(x)
 
-        x_att, new_att_cache = self.self_attn(x,
-                                              x,
-                                              x,
-                                              mask,
-                                              pos_emb,
-                                              att_cache,
-                                              training=training)
+        x_att = self.self_attn(x,
+                               x,
+                               x,
+                               attention_bias,
+                               pos_emb,
+                               cache=att_cache,
+                               training=training)
         if self.concat_after:
             x_concat = tf.concat((x, x_att), axis=-1)
             if training:
@@ -301,10 +302,7 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
         residual = x
         if self.pre_norm:
             x = self.norm_conv(x)
-        x, new_cnn_cache = self.conv_module(x,
-                                            mask_pad,
-                                            cnn_cache,
-                                            training=training)
+        x = self.conv_module(x, cnn_cache, conv_mask, training=training)
         x = residual + x
         if not self.pre_norm:
             x = self.norm_conv(x)
@@ -319,4 +317,4 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
             x = self.norm_ff(x)
 
         x = self.norm_final(x)
-        return x, mask, new_att_cache, new_cnn_cache
+        return x

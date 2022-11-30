@@ -5,7 +5,6 @@ from typing import Tuple
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.ops.array_ops import size_v2
 
 # def positional_encoding(length, depth):
 #     depth = depth // 2
@@ -69,6 +68,7 @@ class PositionalEncoding(tf.keras.layers.Layer):
 
     def call(self,
              inputs,
+             offset,
              training: bool = True) -> Tuple[tf.Tensor, tf.Tensor]:
         """Add positional encoding.
         Args:
@@ -79,7 +79,7 @@ class PositionalEncoding(tf.keras.layers.Layer):
             tf.Tensor: Encoded tensor. Its shape is (batch, time, ...)
             tf.Tensor: for compatibility to RelPositionalEncoding
         """
-        x, offset = inputs
+        x = inputs
         size = tf.shape(x)[1]
         if training:
             pos_emb = self.pe[tf.newaxis, :size, :]
@@ -144,6 +144,7 @@ class RelPositionalEncoding(PositionalEncoding):
 
     def call(self,
              inputs,
+             offset,
              training: bool = True) -> Tuple[tf.Tensor, tf.Tensor]:
         """Compute positional encoding.
         Args:
@@ -154,7 +155,7 @@ class RelPositionalEncoding(PositionalEncoding):
             tf.Tensor: Encoded tensor (batch, time, `*`).
             tf.Tensor: Positional embedding tensor (*, time, `*`).
         """
-        x, offset = inputs
+        x = inputs
         x = x * self.xscale
         pos_emb = self.position_encoding(offset, tf.shape(x)[1], False)
         if training:
@@ -180,10 +181,11 @@ class NoPositionalEncoding(tf.keras.layers.Layer):
 
     def call(self,
              inputs,
+             offset=None,
              training: bool = True) -> Tuple[tf.Tensor, tf.Tensor]:
         """ Just return zero vector for interface compatibility
         """
-        x, _ = inputs
+        x = inputs
         pos_emb = tf.zeros([1, tf.shape(x)[1], self.d_model], dtype=tf.float32)
         if training:
             return tf.nn.dropout(x, self.dropout_rate), pos_emb

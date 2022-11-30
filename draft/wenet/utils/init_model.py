@@ -2,12 +2,12 @@ import tensorflow as tf
 from wenet.transformer.asr_model import ASRModel
 from wenet.transformer.cmvn import GlobalCMVN
 from wenet.transformer.ctc import CTCDense
-from wenet.transformer.decoder import BiTransformerDecoder, TransformerDecoder
+from wenet.transformer.decoder import TransformerDecoder
 from wenet.transformer.encoder import ConformerEncoder, TransformerEncoder
 from wenet.utils.cmvn import load_cmvn
 
 
-def init_model(configs):
+def init_model(configs, if_model_summary=True):
     if configs['cmvn_file'] is not None:
         mean, istd = load_cmvn(configs['cmvn_file'], configs['is_json_cmvn'])
         global_cmvn = GlobalCMVN(tf.convert_to_tensor(mean, dtype=tf.float32),
@@ -32,15 +32,16 @@ def init_model(configs):
 
     ctc_weight = configs['model_conf']['ctc_weight']
     decoder = None
+    reverse_decoder = None
     if ctc_weight != 1.0:
-        if decoder_type == 'transformer':
-            decoder = TransformerDecoder(vocab_size, encoder.output_size(),
-                                         **configs['decoder_conf'])
-        else:
+        decoder = TransformerDecoder(vocab_size, encoder.output_size(),
+                                     **configs['decoder_conf'])
+        if decoder_type == 'Bitransformer':
             assert 0.0 < configs['model_conf']['reverse_weight'] < 1.0
             assert configs['decoder_conf']['r_num_blocks'] > 0
-            decoder = BiTransformerDecoder(vocab_size, encoder.output_size(),
-                                           **configs['decoder_conf'])
+            reverse_decoder = TransformerDecoder(vocab_size,
+                                                 encoder.output_size(),
+                                                 **configs['decoder_conf'])
     ctc_dense = None
     if ctc_weight != 0.0:
         ctc_dense = CTCDense(vocab_size)
@@ -53,5 +54,17 @@ def init_model(configs):
                          encoder=encoder,
                          decoder=decoder,
                          ctcdense=ctc_dense,
+                         reverse_decoder=reverse_decoder,
                          **configs['model_conf'])
+    # force build model here
+    inputs = [
+        tf.keras.layers.Input([None, 80], dtype="float32", name="feats"),
+        tf.keras.layers.Input((), dtype=tf.int32, name="feats_lens"),
+        tf.keras.layers.Input((None, ), dtype=tf.int32, name="labels"),
+        tf.keras.layers.Input((), dtype=tf.int32, name="labels_length"),
+    ]
+    model(inputs)
+    if if_model_summary:
+        model.summary()
+
     return model

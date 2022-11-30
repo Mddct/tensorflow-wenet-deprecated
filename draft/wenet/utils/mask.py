@@ -1,16 +1,13 @@
 import tensorflow as tf
 
 
-def subsequent_mask(size: tf.Tensor) -> tf.Tensor:
-    input = tf.ones((size, size), dtype=tf.bool)
+def subsequent_mask(query: tf.Tensor, value=None, dtype=tf.bool) -> tf.Tensor:
+    q_seq_length = tf.shape(query)[1]
+    v_seq_length = q_seq_length if value is None else tf.shape(value)[1]
+    input = tf.ones((q_seq_length, v_seq_length), dtype=dtype)
     return tf.linalg.band_part(input, -1, 0)
 
 
-@tf.function(input_signature=[
-    tf.TensorSpec([], dtype=tf.int32),
-    tf.TensorSpec([], dtype=tf.int32),
-    tf.TensorSpec([], dtype=tf.int32),
-])
 def subsequent_chunk_mask(
     size: tf.Tensor,
     chunk_size: tf.Tensor,
@@ -43,8 +40,8 @@ def add_optional_chunk_mask(input: tf.Tensor, mask: tf.Tensor,
                             num_decoding_left_chunks: int):
 
     @tf.function(input_signature=[
-        tf.TensorSpec(shape=[None, None, None], dtype=tf.float32),
-        tf.TensorSpec(shape=[None, None, None], dtype=tf.bool)
+        tf.TensorSpec(shape=[None, None, None], dtype=input.dtype),
+        tf.TensorSpec(shape=[None, None, None], dtype=input.dtype)
     ])
     def get_mask(xs: tf.Tensor, masks: tf.Tensor):
         xs_shape = tf.shape(xs)
@@ -87,7 +84,8 @@ def add_optional_chunk_mask(input: tf.Tensor, mask: tf.Tensor,
         chunk_masks = subsequent_chunk_mask(x_shape[1], chunk_size,
                                             num_left_chunks)  # (L, L)
         chunk_masks = tf.expand_dims(chunk_masks, 0)  #[1,L, L]
-        chunk_masks = masks & chunk_masks  # (B, L, L)
+        chunk_masks = masks * tf.cast(chunk_masks,
+                                      dtype=masks.dtype)  # (B, L, L)
 
         return chunk_masks
 
@@ -102,6 +100,7 @@ def make_no_pad_mask(lengths: tf.Tensor, max_len):
     return tf.sequence_mask(lengths)
 
 
+@tf.function
 def get_next_cache_start(required_cache_size: tf.Tensor,
                          attention_key_size: tf.Tensor):
     if required_cache_size < 0:

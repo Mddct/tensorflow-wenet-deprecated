@@ -69,14 +69,13 @@ class AsrTrainer(orbit.StandardTrainer):
                 loss = loss + tf.nn.scale_regularization_loss(
                     regularization_loss)
 
-                gradients = tape.gradient(loss, self.model.trainable_variables)
-                self.optimizer.apply_gradients(
-                    list(zip(gradients, self.model.trainable_variables)))
+            gradients = tape.gradient(loss, self.model.trainable_variables)
+            self.optimizer.apply_gradients(
+                list(zip(gradients, self.model.trainable_variables)))
 
-                for name in self.metrics.keys():
-                    self.metrics[name].update_state(
-                        tf.reduce_sum(loss_dict[name]) /
-                        self.global_batch_size)
+            for name in self.metrics.keys():
+                self.metrics[name].update_state(
+                    tf.reduce_sum(loss_dict[name]) / self.global_batch_size)
 
         self.strategy.run(train_fn, args=(next(iterator), ))
 
@@ -85,7 +84,7 @@ class AsrTrainer(orbit.StandardTrainer):
         with self.strategy.scope():
             # Export the metrics.
             metrics = {
-                name: metric.result() / self.optimizer.iterations.numpy()
+                name: metric.result()
                 for name, metric in self.metrics.items()
             }
             if isinstance(self.optimizer.lr,

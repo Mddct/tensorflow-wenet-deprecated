@@ -1,8 +1,7 @@
 """Decoder self-attention layer definition."""
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import tensorflow as tf
-from tensorflow._api.v2.nn import dropout
 
 
 class DecoderLayer(tf.keras.layers.Layer):
@@ -79,43 +78,39 @@ class DecoderLayer(tf.keras.layers.Layer):
     def call(
         self,
         tgt: tf.Tensor,
-        tgt_mask: tf.Tensor,
+        self_att_bias: tf.Tensor,
         memory: tf.Tensor,
-        memory_mask: tf.Tensor,
-        att_cache: Optional[tf.Tensor] = None,
+        encoder_decoder_att_bias: tf.Tensor,
+        att_cache: Optional[Dict[str, tf.Tensor]] = None,
         training: bool = True,
-    ) -> Tuple[tf.Tensor, tf.Tensor]:
+    ) -> tf.Tensor:
         """Compute decoded features.
         Args:
             tgt (tf.Tensor): Input tensor (#batch, maxlen_out, size).
-            tgt_mask (tf.Tensor): Mask for input tensor
-                (#batch, maxlen_out).
+            self_att_bias (tf.Tensor): bias for decoder input tensor
+                (#batch, 1, L, maxlen_out).
             memory (tf.Tensor): Encoded memory
                 (#batch, maxlen_in, size).
-            memory_mask (tf.Tensor): Encoded memory mask
-                (#batch, maxlen_in).
-            att_cache (tf.Tensor): Cache tensor of the KEY & VALUE
-                    (#batch=1, head, cache_t1, d_k * 2), head * d_k == size.
-                valid when training=False
+            encoder_decoder_att_bias(tf.Tensor): Encoded memory mask
+                (#batch, 1, 1, maxlen_in).
+            att_cache (tf.Tensor):
 
-                (#batch, maxlen_out - 1, size).
         Returns:
             tf.Tensor: Output tensor (#batch, maxlen_out, size).
-            tf.Tensor: slef att ache  for output tensor
         """
         residual = tgt
         if self.pre_norm:
             tgt = self.norm1(tgt)
 
         tgt_q = tgt
-        tgt_q_mask = tgt_mask
+        tgt_q_mask = self_att_bias
 
         # self attention
-        x_att, new_att_cache = self.self_attn(
+        x_att = self.self_attn(
             tgt_q,
             tgt,
             tgt,
-            tgt_q_mask,
+            self_att_bias,
             training=training,
         )
         if self.concat_after:
@@ -134,21 +129,29 @@ class DecoderLayer(tf.keras.layers.Layer):
         if self.pre_norm:
             x = self.norm2(x)
         if self.concat_after:
-            x_concat = tf.concat(
-                (x,
-                 self.src_attn(
-                     x, memory, memory, memory_mask, training=training)[0]),
-                axis=-1)
+            x_concat = tf.concat((x,
+                                  self.src_attn(x,
+                                                memory,
+                                                memory,
+                                                encoder_decoder_att_bias,
+                                                training=training)),
+                                 axis=-1)
             x = residual + self.concat_linear2(x_concat)
         else:
             if training:
-                x = residual + tf.nn.approx_max_k.dropout(
-                    self.src_attn(
-                        x, memory, memory, memory_mask, training=training)[0],
-                    rate=self.dropout_rate)
+                x = residual + tf.nn.dropout(self.src_attn(
+                    x,
+                    memory,
+                    memory,
+                    encoder_decoder_att_bias,
+                    training=training),
+                                             rate=self.dropout_rate)
             else:
-                x = residual + self.src_attn(
-                    x, memory, memory, memory_mask, training=False)
+                x = residual + self.src_attn(x,
+                                             memory,
+                                             memory,
+                                             encoder_decoder_att_bias,
+                                             training=False)
         if not self.pre_norm:
             x = self.norm2(x)
 
@@ -159,4 +162,4 @@ class DecoderLayer(tf.keras.layers.Layer):
         if not self.pre_norm:
             x = self.norm3(x)
 
-        return x, new_att_cache
+        return x

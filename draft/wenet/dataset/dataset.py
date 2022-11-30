@@ -104,7 +104,7 @@ def Dataset(
                                                        None], [], [None], []),
                                        padding_values=(0.0, None,
                                                        tf.cast(0,
-                                                               dtype=tf.int64),
+                                                               dtype=tf.int32),
                                                        None),
                                        drop_remainder=True)
 

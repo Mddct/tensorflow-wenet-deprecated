@@ -6,9 +6,7 @@ import math
 IGNORE_ID = -1
 
 
-def reverse_pad_list(ys_pad: tf.Tensor,
-                     ys_lens: tf.Tensor,
-                     pad_value: int = -1) -> tf.Tensor:
+def reverse_pad_list(ys_pad: tf.Tensor, ys_lens: tf.Tensor) -> tf.Tensor:
     """Reverse padding for the list of tensors.
     Args:
         ys_pad (tensor): The padded tensor (B, Tokenmax).
@@ -25,19 +23,18 @@ def reverse_pad_list(ys_pad: tf.Tensor,
                 [9, 8, 0, 0]])
     """
     maxlen = tf.shape(ys_pad)[1]
-    index = tf.expand_dims(tf.range(0, maxlen), axis=0)  # [1,B]
+    index_range = tf.expand_dims(tf.range(0, maxlen), axis=0)
+    ys_lens_expand = tf.expand_dims(ys_lens, axis=1)
 
-    index = tf.expand_dims(ys_lens, axis=1) - 1 - index  # [B,B]
+    index = ys_lens_expand - 1 - index_range  # [B, L]
+    index = tf.where(index >= 0, index, index_range)
 
-    squence_mask = tf.sequence_mask(ys_lens, maxlen=maxlen)
-    index = tf.where(squence_mask, index, 0)
     r_ys_pad = tf.gather(params=ys_pad, indices=index, axis=1, batch_dims=1)
+    return r_ys_pad
 
-    return tf.where(squence_mask, r_ys_pad, pad_value)
 
-
-def add_sos_eos(ys_pad: tf.Tensor, ys_lens: tf.Tensor, sos: int, eos: int,
-                ignore_id: int) -> Tuple[tf.Tensor, tf.Tensor]:
+def add_sos_eos(ys_pad: tf.Tensor, ys_in_lens: tf.Tensor, sos: int, eos: int,
+                ignore_id: int):
     """Add <sos> and <eos> labels.
     Args:
         ys_pad (torch.Tensor): batch of padded target sequences (B, Lmax)
@@ -65,20 +62,23 @@ def add_sos_eos(ys_pad: tf.Tensor, ys_lens: tf.Tensor, sos: int, eos: int,
                 [ 4,  5,  6, 11, -1, -1],
                 [ 7,  8,  9, 11, -1, -1]])
     """
-    ys_pad_shape = tf.shape(ys_pad)
-    bs = ys_pad_shape[0]
-    ones = tf.zeros([bs, 1], dtype=ys_pad.dtype)
-    sos_tensor = ones + sos
-    eos_tensor = ones + eos
+    bs = tf.shape(ys_pad)[0]
+    max_len = tf.shape(ys_pad)[1]
+    index = tf.expand_dims(tf.range(0, max_len + 1), axis=0)  # [1, maxlen])
+    ys_in_lens_expand = tf.expand_dims(ys_in_lens, axis=1)
+    sos_mask = index <= ys_in_lens_expand
+    sos_tensor = tf.zeros([bs, 1], dtype=ys_pad.dtype) + sos
 
-    ys_pad = tf.where(ys_pad == ignore_id, eos, ys_pad)
-    # TODO: for now,  assume ignore id always in tail of uttrance
     ys_in = tf.concat([sos_tensor, ys_pad], axis=1)
+    ys_in = tf.where(sos_mask, ys_in, eos)
+
+    eos_mask = (index == ys_in_lens_expand)  #[B,maxlen]
+    eos_tensor = tf.zeros([bs, 1], dtype=ys_pad.dtype) + ignore_id
     ys_out = tf.concat([ys_pad, eos_tensor], axis=1)
 
-    ys_out = tf.where(
-        tf.sequence_mask(ys_lens + 1, maxlen=ys_pad_shape[1] + 1), ys_out,
-        ignore_id)
+    ys_out = tf.cast(eos_mask, dtype=ys_out.dtype) * eos + tf.where(
+        eos_mask, 0, ys_out)
+
     return ys_in, ys_out
 
 
@@ -94,6 +94,19 @@ def _large_compatible_negative(tensor_type):
     if tensor_type == tf.float16:
         return tf.float16.min
     return -1e9
+
+
+def get_encoder_attention_bias(input):
+    """ get encoder bias for mask attention scores
+
+    Args:
+      input: value is 1 or 0 shape: [B, *, T]
+
+    Returns:
+      shape: [B, 1, *, T]
+    """
+    input = tf.expand_dims(input, axis=1)
+    return (1 - input) * _large_compatible_negative(input.dtype)
 
 
 def mask_softmax(input, mask, name=None):

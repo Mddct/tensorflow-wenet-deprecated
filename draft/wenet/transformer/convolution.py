@@ -101,15 +101,15 @@ class ConvolutionModule(tf.keras.layers.Layer):
 
     def call(self,
              inputs,
-             mask=None,
              cache=None,
+             mask=None,
              training: bool = True) -> Tuple[tf.Tensor, tf.Tensor]:
         """Compute convolution module.
         Args:
             inputs:
                 x (tf.Tensor): Input tensor (#batch, time, channels).
                 mask_pad (tf.Tensor): used for batch padding (#batch, time, 1),
-                cache (tf.Tensor Optional): left context cache, it is only
+                cache (Dict Optional): 'conv': tf.Tensor, left context cache, it is only
                     used in causal convolution (#batch, cache_t, channels),
                     only valid when training == false
         Returns:
@@ -121,15 +121,15 @@ class ConvolutionModule(tf.keras.layers.Layer):
         if self.lorder > 0:
             if training:  # cache_t == 0
                 x = tf.pad(x, ([0, 0], [self.lorder, 0], [0, 0]))  # pad zero
-            else:
-                x = tf.concat((cache, x), axis=1)
-            # assert (x.size(2) > self.lorder)
-            new_cache = x[:, -self.lorder:, :]
+            elif cache is not None:
+                left_cache = cache['conv']
+                x = tf.concat((left_cache, x), axis=1)
+                new_cache = x[:, -self.lorder:, :]
+                # update cache
+                cache['conv'] = new_cache
         else:
             # mask batch padding
-            # x = tf.where(mask_pad, x, 0.0)
             x = x * tf.cast(mask, dtype=x.dtype)
-            new_cache = tf.zeros([0, 0, 0], dtype=x.dtype)
 
         # GLU mechanism
         x = self.pointwise_conv1(x,
@@ -145,4 +145,4 @@ class ConvolutionModule(tf.keras.layers.Layer):
         # mask batch padding
         if self.lorder == 0:
             x = x * tf.cast(mask, dtype=x.dtype)
-        return x, new_cache
+        return x

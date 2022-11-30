@@ -8,6 +8,7 @@ from wenet.transformer.search.ctc_search import CTCSearch
 from wenet.transformer.inference import Decoder
 from wenet.dataset.dataset import Dataset
 import copy
+from wenet.utils.file_utils import read_symbol_table
 
 FLAGS = flags.FLAGS
 
@@ -18,10 +19,6 @@ flags.DEFINE_string('checkpoint',
                     required=True,
                     help='checkpoint')
 flags.DEFINE_string('wav_path', default=None, required=True, help='wav file')
-flags.DEFINE_enum('mode',
-                  enum_values=['ctc_greedy_search', 'ctc_prefix_beam_search'],
-                  default='ctc_prefix_beam_search',
-                  help='decoding mode')
 flags.DEFINE_enum('data_type',
                   default='raw',
                   enum_values=['raw', 'shard'],
@@ -42,6 +39,24 @@ flags.DEFINE_enum('mode',
                   ],
                   default='attention',
                   help='decoding mode')
+
+flags.DEFINE_string('symbol_table',
+                    default=None,
+                    required=True,
+                    help='model unit symbol table for training')
+
+
+def ids_to_words(symbol_table_path, unk="<unk>"):
+    words, ids = read_symbol_table(symbol_table_path)
+    init = tf.lookup.KeyValueTensorInitializer(
+        values=tf.constant(words, dtype=tf.string),
+        keys=tf.constant(ids, dtype=tf.int32),
+    )
+
+    return tf.lookup.StaticHashTable(
+        init,
+        default_value=unk,
+    ), len(words)
 
 
 def main(argv):
@@ -93,6 +108,8 @@ def main(argv):
         search = CTCSearch(FLAGS.beam)
     else:
         raise NotImplementedError('only ctc search support now')
+
+    ids_to_words_fn, _ = ids_to_words(FLAGS.symbol_table)
     for batch in dataset:
         feats, feats_lens = batch
         chunks_out = module_wenet.forward_encoder(

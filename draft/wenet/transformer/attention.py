@@ -1,6 +1,6 @@
 """Multi-Head Attention layer definition."""
 
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import tensorflow as tf
 from wenet.utils.common import mask_softmax, XavierUniform
@@ -15,12 +15,12 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
     """
 
     def __init__(
-            self,
-            n_head: int,
-            n_feat: int,
-            dropout_rate: float,
-            bias_regularizer="l2",
-            kernel_regularizer="l2",
+        self,
+        n_head: int,
+        n_feat: int,
+        dropout_rate: float,
+        bias_regularizer="l2",
+        kernel_regularizer="l2",
     ):
         """Construct an MultiHeadedAttention object."""
         super().__init__()
@@ -114,80 +114,81 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
     def forward_attention(self,
                           value: tf.Tensor,
                           scores: tf.Tensor,
-                          mask: Optional[tf.Tensor] = None,
+                          bias: tf.Tensor,
                           training: bool = True) -> tf.Tensor:
         """Compute attention context vector.
+
         Args:
             value (tf.Tensor): Transformed value, size
-                (#batch, n_head, time2, d_k).
+                [batch_size, n_head, time2, d_k].
             scores (tf.Tensor): Attention score, size
-                (#batch, n_head, time1, time2).
-            mask (tf.Tensor): Mask, size (#batch, 1, time2) or
-                (#batch, time1, time2)
+                [batch_size, n_head, time1, time2].
+            bias (tf.Tensor): A tensor with shape [batch_size, 1, length_query, length_source]
+              the attention bias that will be added to the result of the dot product.
+
         Returns:
             tf.Tensor: Transformed value (#batch, time1, d_model)
                 weighted by the attention score (#batch, time1, time2).
         """
-        n_batch = tf.shape(value)[0]
-        if training:
-            mask = tf.expand_dims(mask, axis=1)  # [B,1, *, time2]
-            attn = mask_softmax(scores, mask, name='attention_weights')
-        else:
-            # NOTE: one uttrance don't need a mask
-            # but for batch streamming inference mask is necessary
-            # TODO: fix
-            attn = tf.nn.softmax(scores, axis=-1, name='attention_weights')
-        p_attn = self.dropout(attn, training) #[]
+        length_query = tf.shape(scores)[2]
+        # Note that softmax internally performs math operations using float32
+        # for numeric stability. When training with float16, we keep the input
+        # and output in float16 for better performance.
+        scores = scores + bias
+        attn = tf.nn.softmax(scores, axis=-1, name='attention_weights')
+        p_attn = self.dropout(attn, training)  #[]
         x = tf.matmul(p_attn, value)  # [batch, head, time1, d_k]
         x = tf.reshape(
             tf.transpose(x, [0, 2, 1, 3]),
-            [n_batch, -1, self.h * self.d_k])  # (batch, time1, d_model)
+            [-1, length_query, self.h * self.d_k])  # (batch, time1, d_model)
         return self.linear_out(x)  # (batch, time1, d_model)
 
     def call(self,
              query: tf.Tensor,
              key: tf.Tensor,
              value: tf.Tensor,
-             mask: Optional[tf.Tensor] = None,
+             bias: tf.Tensor,
              pos_emb: Optional[tf.Tensor] = None,
-             cache: Optional[tf.Tensor] = None,
-             training: bool = True) -> Tuple[tf.Tensor, tf.Tensor]:
+             cache: Optional[Dict[str, tf.Tensor]] = None,
+             training: bool = True) -> tf.Tensor:
         """Compute scaled dot product attention.
+
         Args:
-            query (tf.Tensor): Query tensor (#batch, time1, size).
-            key (tf.Tensor): Key tensor (#batch, time2, size).
-            value (tf.Tensor): Value tensor (#batch, time2, size).
-            mask (tf.Tensor): Mask tensor (#batch, 1, time2) or
-                (#batch, time1, time2).
-                1.When applying cross attention between decoder and encoder,
-                the batch padding mask for input is in (#batch, 1, T) shape.
-                2.When applying self attention of encoder,
-                the mask is in (#batch, T, T)  shape.
-                3.When applying self attention of decoder,
-                the mask is in (#batch, L, L)  shape.
-                4.If the different position in decoder see different block
-                of the encoder, such as Mocha, the passed in mask could be
-                in (#batch, L, T) shape. But there is no such case in current
-                Wenet.
-            cache (tf.Tensor): Cache tensor (1, head, cache_t, d_k * 2),
-                where `cache_t == chunk_size * num_decoding_left_chunks`
-                and `head * d_k == size`
+          query (tf.Tensor): Query tensor (#batch, time1, size).
+          key (tf.Tensor): Key tensor (#batch, time2, size).
+          value (tf.Tensor): Value tensor (#batch, time2, size).
+          mask (tf.Tensor): Mask tensor (#batch, 1, time2) or
+            (#batch, time1, time2).
+            1.When applying cross attention between decoder and encoder,
+            the batch padding mask for input is in (#batch, 1, T) shape.
+            2.When applying self attention of encoder,
+            the mask is in (#batch, T, T)  shape.
+            3.When applying self attention of decoder,
+            the mask is in (#batch, L, L)  shape.
+            4.If the different position in decoder see different block
+            of the encoder, such as Mocha, the passed in mask could be
+            in (#batch, L, T) shape. But there is no such case in current
+            Wenet.
+          cache (tf.Tensor): (Used during prediction) A dictionary with tensors containing
+            results of previous attentions. The dictionary must have the items:
+            {"k": tensor with shape [batch_size, i, heads, dim_per_head],
+            "v": tensor with shape [batch_size, i, heads, dim_per_head]} where
+            i is the current decoded length for non-padded decode, or max
+            sequence
         Returns:
             tf.Tensor: Output tensor (#batch, time1, d_model).
-            tf.Tensor: Cache tensor (1, head, cache_t + time1, d_k * 2)
-                where `cache_t == chunk_size * num_decoding_left_chunks`
-                and `head * d_k == size`
         """
         q, k, v = self.forward_qkv(query, key, value)
-        if not training and cache is not None:
-            key_cache, value_cache = tf.split(cache, 2, axis=-1)
-            k = tf.concat([key_cache, k], axis=2)
-            v = tf.concat([value_cache, v], axis=2)
+        if cache is not None:
+            key = tf.concat([tf.cast(cache["k"], key.dtype), key], axis=1)
+            value = tf.concat([tf.cast(cache["v"], value.dtype), value],
+                              axis=1)
 
-        new_cache = tf.concat((k, v), axis=-1)
+            cache['k'] = key
+            cache['v'] = value
         depth = self.d_k**(-0.5)
         scores = tf.matmul(q * depth, tf.transpose(k, [0, 1, 3, 2]))
-        return self.forward_attention(v, scores, mask), new_cache
+        return self.forward_attention(v, scores, bias, training=training)
 
     def get_config(self):
         conf = super(MultiHeadedAttention, self).get_config()
@@ -261,39 +262,37 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         query: tf.Tensor,
         key: tf.Tensor,
         value: tf.Tensor,
-        mask: Optional[tf.Tensor] = None,
+        bias: tf.Tensor,
         pos_emb: Optional[tf.Tensor] = None,
-        cache: Optional[tf.Tensor] = None,
+        cache: Optional[Dict[str, tf.Tensor]] = None,
         training: bool = True,
-    ) -> Tuple[tf.Tensor, tf.Tensor]:
+    ) -> tf.Tensor:
         """Compute 'Scaled Dot Product Attention' with rel. positional encoding.
         Args:
-            query (tf.Tensor): Query tensor (#batch, time1, size).
-            key (tf.Tensor): Key tensor (#batch, time2, size).
-            value (tf.Tensor): Value tensor (#batch, time2, size).
-            mask (tf.Tensor): Mask tensor (#batch, 1, time2) or
-                (#batch, time1, time2)
-            pos_emb (tf.Tensor): Positional embedding tensor
-                (#batch, time2, size).
-            cache (tf.Tensor): Cache tensor (1, head, cache_t, d_k * 2),
-                where `cache_t == chunk_size * num_decoding_left_chunks`
-                and `head * d_k == size`
+          query (tf.Tensor): Query tensor (#batch, time1, size).
+          key (tf.Tensor): Key tensor (#batch, time2, size).
+          value (tf.Tensor): Value tensor (#batch, time2, size).
+          mask (tf.Tensor): Mask tensor (#batch, 1, time2) or
+              (#batch, time1, time2)
+          pos_emb (tf.Tensor): Positional embedding tensor
+              (#batch, time2, size).
+          cache (tf.Tensor): Cache tensor (1, head, cache_t, d_k * 2),
+              where `cache_t == chunk_size * num_decoding_left_chunks`
+              and `head * d_k == size`
         Returns:
             tf.Tensor: Output tensor (#batch, time1, d_model).
-            tf.Tensor: Cache tensor (1, head, cache_t + time1, d_k * 2)
-                where `cache_t == chunk_size * num_decoding_left_chunks`
-                and `head * d_k == size`
         """
         q, k, v = self.forward_qkv(query, key, value)
         q = tf.transpose(q, [0, 2, 1, 3])  # (batch, time1, head, d_k)
 
-        if not training:
-            key_cache, value_cache = tf.split(cache, 2, axis=-1)
-            k = tf.concat([key_cache, k], axis=2)
-            v = tf.concat([value_cache, v], axis=2)
+        if cache is not None:
+            key = tf.concat([tf.cast(cache["k"], key.dtype), key], axis=1)
+            value = tf.concat([tf.cast(cache["v"], value.dtype), value],
+                              axis=1)
 
-        new_cache = tf.concat((k, v), axis=-1)
-
+            # update cache
+            cache["k"] = key
+            cache["v"] = value
         n_batch_pos = tf.shape(pos_emb)[0]
         p = tf.reshape(self.linear_pos(pos_emb),
                        [n_batch_pos, -1, self.h, self.d_k])
@@ -322,5 +321,4 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
 
         scores = (matrix_ac + matrix_bd)  # (batch, head, time1, time2)
 
-        return self.forward_attention(v, scores, mask,
-                                      training=training), new_cache
+        return self.forward_attention(v, scores, bias, training=training)

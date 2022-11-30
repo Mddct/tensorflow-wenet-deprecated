@@ -32,22 +32,32 @@ def main(argv):
     checkpoint = tf.train.Checkpoint(model=model)
     checkpoint.restore(FLAGS.checkpoint)
 
-    # TODO: different chunk_size
-    module_wenet = Decoder(model, 16, 16)
+    module_wenet = Decoder(model)
+    # encoder
     chunk_outs = module_wenet.forward_encoder_chunk.get_concrete_function(
-        tf.TensorSpec([1, None, None], dtype=tf.float32),
+        tf.TensorSpec([None, None, None], dtype=tf.float32),
         tf.TensorSpec([None], dtype=tf.int32),
         tf.TensorSpec([None], dtype=tf.int32),
         tf.TensorSpec([None], dtype=tf.int32),
         tf.TensorSpec([None, None, None, None], dtype=tf.float32),
         tf.TensorSpec([None, None, None, None], dtype=tf.float32),
     )
+    # attention decoder for rescore
+    rescore_outs = module_wenet.forward_attention_decoder.get_concrete_functino(
+        tf.TensorSpec([None, None, None], dtype=tf.float32),
+        tf.TensorSpec([None], dtype=tf.int32),
+        tf.TensorSpec([None, None], dtype=tf.int32),
+        tf.TensorSpec((), dtype=tf.int32), tf.TensorSpec((), dtype=tf.int32),
+        tf.TensorSpec([None, None, None], dtype=tf.float32),
+        tf.TensorSpec([None, None], dtype=tf.float32))
+
     metadata = module_wenet.metadata.get_concrete_function(
         tf.TensorSpec(None, tf.bool))
     tf.saved_model.save(module_wenet,
                         FLAGS.output_path,
                         signatures={
                             'forward_encoder_chunk': chunk_outs,
+                            'attention_decoder': rescore_outs,
                             "metadata": metadata
                         })
 

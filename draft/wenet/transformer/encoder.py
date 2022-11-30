@@ -1,5 +1,5 @@
 """Encoder definition."""
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import tensorflow as tf
 from typeguard import check_argument_types
@@ -17,6 +17,7 @@ from wenet.transformer.subsampling import (Conv2dSubsampling4,
                                            Conv2dSubsampling8,
                                            LinearNoSubsampling)
 from wenet.utils.mask import (add_optional_chunk_mask, get_next_cache_start)
+from wenet.utils.common import get_encoder_attention_bias
 
 
 class BaseEncoder(tf.keras.layers.Layer):
@@ -35,7 +36,7 @@ class BaseEncoder(tf.keras.layers.Layer):
             pos_enc_layer_type: str = "abs_pos",
             normalize_before: bool = True,
             concat_after: bool = False,
-            static_chunk_size: int = 0,
+            static_chunk_size: int = -1,
             use_dynamic_chunk: bool = False,
             global_cmvn: Optional[tf.keras.layers.Layer] = None,
             use_dynamic_left_chunk: bool = False,
@@ -122,6 +123,7 @@ class BaseEncoder(tf.keras.layers.Layer):
     def call(
         self,
         inputs,
+        inputs_lens,
         decoding_chunk_size: int = 0,
         num_decoding_left_chunks: int = -1,
         training=True,
@@ -144,28 +146,30 @@ class BaseEncoder(tf.keras.layers.Layer):
             masks: tf.Tensor batch padding mask after subsample
                 (B, T' ~= T/subsample_rate, 1)
         """
-        xs, xs_lens = inputs
+        xs, xs_lens = inputs, inputs_lens
         if self.global_cmvn is not None:
             xs = self.global_cmvn(xs)
         # offset = [0, 0....] for training
         fake_offset = tf.zeros(tf.shape(xs)[0], dtype=tf.int32)
-        xs, pos_emb = self.embed([xs, fake_offset], training=training)
-        masks = self.embed.get_mask(xs_lens)
+        xs, pos_emb = self.embed(xs, fake_offset, training=training)
+        masks = self.embed.get_mask(xs_lens, dtype=xs.dtype)
+
         masks = tf.expand_dims(masks, axis=2)  # (B, T/subsample_rate, 1)
 
-        mask_pad = masks  # (B, T/subsample_rate, 1)
+        conv_mask = masks  # (B, T/subsample_rate, 1)
         masks = tf.transpose(masks, [0, 2, 1])  # (B, 1, T/subsample_rate)
-        chunk_masks = add_optional_chunk_mask(xs, masks,
-                                              self.use_dynamic_chunk,
-                                              self.use_dynamic_left_chunk,
-                                              decoding_chunk_size,
-                                              self.static_chunk_size,
-                                              num_decoding_left_chunks)
+        chunk_attention_bias = add_optional_chunk_mask(
+            xs, masks, self.use_dynamic_chunk, self.use_dynamic_left_chunk,
+            decoding_chunk_size, self.static_chunk_size,
+            num_decoding_left_chunks)
+        chunk_attention_bias = get_encoder_attention_bias(chunk_attention_bias)
 
         for layer in self.encoders:
-            xs, chunk_masks, _, _ = layer([xs, pos_emb, mask_pad, None, None],
-                                          chunk_masks,
-                                          training=training)
+            xs = layer(xs,
+                       pos_emb,
+                       chunk_attention_bias,
+                       conv_mask,
+                       training=training)
         if self.normalize_before:
             xs = self.after_norm(xs)
         # Here we assume the mask is not changed in encoder layers, so just
@@ -173,19 +177,17 @@ class BaseEncoder(tf.keras.layers.Layer):
         # for cross attention with decoder later
         return xs, masks
 
-    def forwar_chunk_batch(self):
-        pass
-
-    # helper function for export savedmodel : one uttrance
+    # helper function for export savedmodel : support batch
     def forward_chunk(
         self,
         xs: tf.Tensor,
         xs_lens: tf.Tensor,
         offset: tf.Tensor,
         required_cache_size: tf.Tensor,
-        att_cache: tf.Tensor,
-        cnn_cache: tf.Tensor,
-    ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+        att_cache: Dict[str, tf.Tensor],
+        att_cache_mask: Dict[str, tf.Tensor],
+        cnn_cache: Dict[str, tf.Tensor],
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         """ Forward just one chunk
         Args:
             xs (tf.Tensor): chunk input, with shape (b=1, time, mel-dim),
@@ -196,14 +198,16 @@ class BaseEncoder(tf.keras.layers.Layer):
                 compuation
                 >=0: actual cache size
                 <0: means all history cache is required
+                each request may have different history cache.
             att_cache (tf.Tensor): cache tensor for KEY & VALUE in
                 transformer/conformer attention, with shape
-                (elayers, head, cache_t1, d_k * 2), where
+                (B, elayers, head, cache_t1, d_k * 2), where
                 `head * d_k == hidden-dim` and
                 `cache_t1 == chunk_size * num_decoding_left_chunks`.
                 if cache_t1 == 0, means fake cache, first chunk
+            att_cache_len (tf.Tensor): real currnet cache length, left padding
             cnn_cache (tf.Tensor): cache tensor for cnn_module in conformer,
-                (elayers, b=1, hidden-dim, cache_t2), where
+                (b, elayers, hidden-dim, cache_t2), where
                 `cache_t2 == cnn.lorder - 1`
         Returns:
             tf.Tensor: output of current input xs,
@@ -217,36 +221,39 @@ class BaseEncoder(tf.keras.layers.Layer):
         if self.global_cmvn is not None:
             xs = self.global_cmvn(xs)
 
-        att_cache_shape = tf.shape(att_cache)
-        _, cache_t1 = att_cache_shape[0], att_cache_shape[2]
-        chunk_size = tf.shape(xs)[1]
-        attention_key_size = cache_t1 + chunk_size
+        chunk_size = tf.shape(xs)[0]
+        att_key_size = tf.shape(att_cache[0])[1] + chunk_size
 
-        xs, pos_emb = self.embed(inputs=[xs, offset - cache_t1],
-                                 training=False)
-        chunk_mask = self.embed.get_mask(xs_lens)  # [B, T]
-        chunk_mask = tf.expand_dims(chunk_mask, axis=2)  # [B, T, 1]
-        next_cache_start = get_next_cache_start(attention_key_size,
-                                                required_cache_size)
-        r_att_cache = []
-        r_cnn_cache = []
+        xs, pos_emb = self.embed(xs, offset, training=False)
+
+        chunk_mask = self.embed.get_mask(xs_lens, dtype=xs.dtype)  #[B,T]
+        tmp_chunk_mask = chunk_mask
+        conv_mask = tf.expand_dims(chunk_mask, axis=1)  #[B,T,1]
+
+        chunk_mask = tf.concat([att_cache_mask['mask'], chunk_mask], axis=1)
+        next_cache_start = get_next_cache_start(required_cache_size,
+                                                att_key_size)
+        # update dict
+        att_cache_mask['mask'] = chunk_mask[:, next_cache_start:]
+
+        encoder_att_bias = get_encoder_attention_bias(
+            tf.expand_dims(tf.expand_dims(chunk_mask, axis=1),
+                           axis=2))  # [B, 1, 1, T]
         for i, layer in enumerate(self.encoders):
-            xs, _, new_att_cache, new_cnn_cache = layer(
-                inputs=[
-                    xs, pos_emb, chunk_mask, att_cache[i:i + 1], cnn_cache[i]
-                ],
-                mask=None,
+            xs = layer(
+                xs,
+                pos_emb,
+                encoder_att_bias,
+                conv_mask,
+                att_cache[i],
+                cnn_cache[i],
                 training=False,
             )
-            r_att_cache.append(new_att_cache[:, :, next_cache_start:, :])
-            r_cnn_cache.append(tf.expand_dims(new_cnn_cache, axis=0))
+
         if self.normalize_before:
             xs = self.after_norm(xs)
 
-        r_att_cache = tf.concat(r_att_cache, axis=0)
-        r_cnn_cache = tf.concat(r_cnn_cache, axis=0)
-
-        return (xs, r_att_cache, r_cnn_cache)
+        return xs, tmp_chunk_mask
 
 
 class TransformerEncoder(BaseEncoder):

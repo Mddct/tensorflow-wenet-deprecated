@@ -1,3 +1,4 @@
+from typing import Optional
 import tensorflow as tf
 from wenet.transformer.ctc import CTCDense
 from wenet.transformer.decoder import TransformerDecoder
@@ -15,11 +16,13 @@ class ASRModel(tf.keras.Model):
         encoder: TransformerEncoder,
         decoder: TransformerDecoder,
         ctcdense: CTCDense,
+        # for BiTransformerDecoder
+        reverse_decoder: Optional[TransformerDecoder] = None,
         ctc_weight: float = 0.5,
         ignore_id: int = IGNORE_ID,
         reverse_weight: float = 0.0,
         lsm_weight: float = 0.0,
-        length_normalized_loss: bool = False,
+        **kwargs,
     ):
         assert 0.0 <= ctc_weight <= 1.0, ctc_weight
 
@@ -38,7 +41,16 @@ class ASRModel(tf.keras.Model):
             self.decoder = decoder
         if self.ctc_weight != 0:
             self.ctc_dense = ctcdense
+        if self.reverse_weight != 0.0:
+            assert self.reverse_decoder is not None
+            self.reverse_decoder = reverse_decoder
 
+    @tf.function(input_signature=[(tf.TensorSpec([None, None, None],
+                                                 dtype=tf.float32),
+                                   tf.TensorSpec([None], dtype=tf.int32),
+                                   tf.TensorSpec([None, None], dtype=tf.int32),
+                                   tf.TensorSpec([None], dtype=tf.int32))],
+                 reduce_retracing=True)
     def call(
         self,
         inputs,
@@ -54,7 +66,11 @@ class ASRModel(tf.keras.Model):
 
         speech, speech_lengths, text, text_lengths = inputs
         # 1. Encoder
-        encoder_out, encoder_mask = self.encoder([speech, speech_lengths])
+        encoder_out, encoder_mask = self.encoder(
+            speech,
+            speech_lengths,
+            training=True,
+        )
         encoder_out_lens = tf.reduce_sum(tf.cast(tf.squeeze(encoder_mask,
                                                             axis=1),
                                                  dtype=text_lengths.dtype),
@@ -62,11 +78,9 @@ class ASRModel(tf.keras.Model):
         if self.ctc_weight != 1.0:
             decoder_out, ys_out_pad, r_decoder_out, r_ys_out_pad = self.forward_decoder(
                 encoder_out, encoder_mask, text, text_lengths)
+            encoder_out = self.ctc_dense(encoder_out, training=True)
         else:
             decoder_out, ys_out_pad, r_decoder_out, r_ys_out_pad = None, None, None, None
-
-        if self.ctc_weight != 0.0:
-            encoder_out = self.ctc_dense(encoder_out, training=True)
 
         return (
             encoder_out,
@@ -83,16 +97,22 @@ class ASRModel(tf.keras.Model):
                                             self.eos, self.ignore_id)
         ys_in_lens = ys_pad_lens + 1
 
-        # reverse the seq, used for right to left decoder
-        r_ys_pad = reverse_pad_list(ys_pad, ys_pad_lens, self.ignore_id)
-        r_ys_in_pad, r_ys_out_pad = add_sos_eos(r_ys_pad, ys_pad_lens,
-                                                self.sos, self.eos,
-                                                self.ignore_id)
+        ys_pad_mask = tf.sequence_mask(ys_in_lens,
+                                       maxlen=tf.shape(ys_pad)[1],
+                                       dtype=encoder_mask.dtype)
         # 1. Forward decoder
-        decoder_out, r_decoder_out = self.decoder(encoder_out, encoder_mask,
-                                                  ys_in_pad, ys_in_lens,
-                                                  r_ys_in_pad,
-                                                  self.reverse_weight)
+        decoder_out = self.decoder(encoder_out, encoder_mask, ys_in_pad,
+                                   ys_pad_mask)
+        r_decoder_out = None
+        r_ys_out_pad = None
+        if self.reverse_weight != 0.0:
+            # reverse the seq, used for right to left decoder
+            r_ys_pad = reverse_pad_list(ys_pad, ys_pad_lens)
+            r_ys_in_pad, r_ys_out_pad = add_sos_eos(r_ys_pad, ys_pad_lens,
+                                                    self.sos, self.eos,
+                                                    self.ignore_id)
+            r_decoder_out = self.reverse_decoder(encoder_out, encoder_mask,
+                                                 r_ys_in_pad, ys_pad_mask)
 
         return decoder_out, ys_out_pad, r_decoder_out, r_ys_out_pad
 
