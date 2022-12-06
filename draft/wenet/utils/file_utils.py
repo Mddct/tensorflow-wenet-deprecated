@@ -1,4 +1,4 @@
-import os
+draft/wenet/transformer/attention.py import os
 from typing import List, Tuple
 
 import tensorflow as tf
@@ -58,7 +58,8 @@ def distributed_write_filepath(filepath, strategy):
 
 
 def is_chief(strategy):
-    if isinstance(strategy, tf.distribute.MirroredStrategy):
+    if isinstance(strategy, tf.distribute.MirroredStrategy) or isinstance(
+            strategy, tf.distribute.OneDeviceStrategy):
         return True
     task_type, task_id, cluster_spec = (
         strategy.cluster_resolver.task_type, strategy.cluster_resolver.task_id,

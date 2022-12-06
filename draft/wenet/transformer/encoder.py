@@ -40,8 +40,8 @@ class BaseEncoder(tf.keras.layers.Layer):
             use_dynamic_chunk: bool = False,
             global_cmvn: Optional[tf.keras.layers.Layer] = None,
             use_dynamic_left_chunk: bool = False,
-            bias_regularizer=tf.keras.regularizers.l2(1e-6),
-            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+            bias_regularizer=tf.keras.regularizers.L2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.L2(1e-6),
     ):
         """
         Args:

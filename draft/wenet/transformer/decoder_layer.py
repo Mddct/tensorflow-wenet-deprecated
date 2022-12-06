@@ -33,8 +33,8 @@ class DecoderLayer(tf.keras.layers.Layer):
             dropout_rate: float,
             normalize_before: bool = True,
             concat_after: bool = False,
-            bias_regularizer=tf.keras.regularizers.l2(1e-6),
-            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+            bias_regularizer=tf.keras.regularizers.L2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.L2(1e-6),
     ):
         """Construct an DecoderLayer object."""
         super().__init__()

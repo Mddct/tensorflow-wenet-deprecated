@@ -12,6 +12,7 @@ from wenet.utils.file_utils import distributed_write_filepath, is_chief
 from wenet.utils.init_model import init_model
 from wenet.utils.scheduler import TransformerLearningRateSchedule
 from wenet.utils.file_utils import read_symbol_table
+from wenet.utils.distribute_utils import get_distribution_strategy
 
 FLAGS = flags.FLAGS
 
@@ -69,9 +70,13 @@ flags.DEFINE_enum(
 flags.DEFINE_string('trained_model_path',
                     default="",
                     help="partial init model, often from pretrain model")
+flags.DEFINE_bool('debug',
+                  default=False,
+                  help="enable tensorboard debugger v2")
 
 
 def main(argv):
+
     # Set random seed
     tf.random.set_seed(777)
     with open(FLAGS.config, 'r') as fin:
@@ -84,12 +89,19 @@ def main(argv):
         FLAGS.dist_strategy,
         num_gpus=num_gpus,
     )
-    dataset_conf = configs['dataset_conf']
 
-    # TOO: global_batch_size from TF_CONFIG
+    checkpoint_dir = distributed_write_filepath(FLAGS.model_dir, strategy)
+    if FLAGS.debug and is_chief(strategy):
+        tf.debugging.experimental.enable_dump_debug_info(
+            os.path.join(checkpoint_dir, "tfdbg2_wenet"),
+            tensor_debug_mode="FULL_HEALTH",
+            circular_buffer_size=-1)
+
+    # dataset
+    dataset_conf = configs['dataset_conf']
+    # TODO: global_batch_size from TF_CONFIG
     global_batch_size = dataset_conf['batch_conf'][
         'batch_size'] * strategy.num_replicas_in_sync
-
     train_dataset, vocab_size = Dataset(
         dataset_conf,
         FLAGS.symbol_table,
@@ -139,7 +151,6 @@ def main(argv):
             metrics['loss_att'] = tf.keras.metrics.Mean('loss_att',
                                                         dtype=tf.float32)
         # checkpoint
-        checkpoint_dir = distributed_write_filepath(FLAGS.model_dir, strategy)
         checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
         ## init from partial other model
         init_fn = None
@@ -156,25 +167,26 @@ def main(argv):
             step_counter=checkpoint.optimizer.iterations,
             init_fn=init_fn,  # future to init partial weight
         )
-        trainer = AsrTrainer(
-            train_dataset,
-            model,
-            optimizer,
-            global_batch_size=global_batch_size,
-            strategy=strategy,
-            metrics=metrics,
-        )
-        controller = orbit.Controller(
-            trainer=trainer,
-            steps_per_loop=FLAGS.steps_per_loop,
-            global_step=trainer.optimizer.iterations,
-            checkpoint_manager=checkpoint_manager,
-            summary_interval=configs['log_interval'],
-            summary_dir=os.path.join(checkpoint_dir, "tensorboard"),
-        )
-        controller.train(FLAGS.max_steps)
+    trainer = AsrTrainer(
+        train_dataset,
+        model,
+        optimizer,
+        global_batch_size=global_batch_size,
+        strategy=strategy,
+        metrics=metrics,
+    )
+    controller = orbit.Controller(
+        trainer=trainer,
+        steps_per_loop=FLAGS.steps_per_loop,
+        strategy=strategy,
+        global_step=trainer.optimizer.iterations,
+        checkpoint_manager=checkpoint_manager,
+        summary_interval=configs['log_interval'],
+        summary_dir=os.path.join(checkpoint_dir, "tensorboard"),
+    )
+    controller.train(FLAGS.max_steps)
 
-        # TODO: train and continous evaluate
+    # TODO: train and continous evaluate
 
 
 if __name__ == '__main__':

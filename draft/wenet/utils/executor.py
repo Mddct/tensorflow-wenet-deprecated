@@ -43,7 +43,7 @@ class AsrTrainer(orbit.StandardTrainer):
 
     def train_step(self, iterator):
 
-        def train_fn(inputs):
+        def step_fn(inputs):
 
             with tf.GradientTape() as tape:
                 # feats, feats_length, labels, labels_length = inputs
@@ -77,7 +77,7 @@ class AsrTrainer(orbit.StandardTrainer):
                 self.metrics[name].update_state(
                     tf.reduce_sum(loss_dict[name]) / self.global_batch_size)
 
-        self.strategy.run(train_fn, args=(next(iterator), ))
+        self.strategy.run(step_fn, args=(next(iterator), ))
 
     def train_loop_end(self):
 

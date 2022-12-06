@@ -21,8 +21,8 @@ class PositionwiseFeedForward(tf.keras.layers.Layer):
             hidden_units: int,
             dropout_rate: float,
             activation: str = 'relu',
-            bias_regularizer="l2",
-            kernel_regularizer="l2",
+            bias_regularizer=tf.keras.regularizers.L2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.L2(1e-6),
             **kwargs,
     ):
         """Construct a PositionwiseFeedForward object."""

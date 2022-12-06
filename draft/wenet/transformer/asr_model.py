@@ -128,11 +128,14 @@ class ASRModel(tf.keras.Model):
         r_decoder_out_pad,
     ):
         loss_ctc = None
+        # TODO: move label convert to data pipeline
+        # NOTE: sparse label, tf will chose cuda ctc which faster than dense even on gpu
         if self.ctc_weight != 0.0:
+            labels_sparse = tf.sparse.from_dense(encoder_labels)
             loss_ctc = tf.nn.ctc_loss(
-                encoder_labels,
+                labels_sparse,
                 encoder_logits,
-                encoder_labels_lens,
+                None,
                 encoder_logits_lens,
                 logits_time_major=False,
             )

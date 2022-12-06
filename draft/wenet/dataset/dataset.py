@@ -54,16 +54,30 @@ def Dataset(
             shuffle_conf = conf.get('shuffle_conf', {})
             dataset = dataset.shuffle(buffer_size=shuffle_conf['shuffle_size'],
                                       reshuffle_each_iteration=True)
-        if training:
+        if training and cache is not None:
             dataset = dataset.repeat()
+            shard = 1000
+            prefetch_wav = 100
+            dataset = dataset.window(shard)
+
+            dataset = dataset.interleave(
+                lambda window: window.map(lambda line: processor.parse_line(
+                    line, symbol_table),
+                                          num_parallel_calls=tf.data.AUTOTUNE).
+                apply(tf.data.experimental.ignore_errors()),
+                num_parallel_calls=tf.data.AUTOTUNE,
+                block_length=prefetch_wav,
+            )
+
         if cache:
             # for small dataset we can cache all raw wav in memory
             dataset = dataset.cache()
-        dataset = dataset.map(
-            lambda line: processor.parse_line(line, symbol_table),
-            num_parallel_calls=tf.data.AUTOTUNE)
+
+        # dataset = dataset.map(
+        #     lambda line: processor.parse_line(line, symbol_table),
+        #     num_parallel_calls=tf.data.AUTOTUNE)
         # file may not found in  parse_line, ignore error
-        dataset = dataset.apply(tf.data.experimental.ignore_errors())
+        # dataset = dataset.apply(tf.data.experimental.ignore_errors())
 
         speed_perturb = conf.get('speed_perturb', False)
         if speed_perturb:
@@ -99,14 +113,43 @@ def Dataset(
         if strategy is not None:
             batch_size = input_context.get_per_replica_batch_size(
                 global_batch_size)
-        dataset = dataset.padded_batch(batch_size=batch_size,
-                                       padded_shapes=([None,
-                                                       None], [], [None], []),
-                                       padding_values=(0.0, None,
-                                                       tf.cast(0,
-                                                               dtype=tf.int32),
-                                                       None),
-                                       drop_remainder=True)
+        # bucket
+        # TODO: from config
+        bucket_boundaries = [500, 10 * 100, 15 * 100,
+                             20 * 100]  # [0-5s) [5s, 10s) [10s,15) ...
+        bucket_batch_sizes = [batch_size] * (len(bucket_boundaries) + 1)
+        dataset = dataset.bucket_by_sequence_length(
+            lambda inputs: tf.cast(inputs[1], tf.int32),
+            bucket_boundaries,
+            bucket_batch_sizes,
+            pad_to_bucket_boundary=False,
+            drop_remainder=True,
+            padded_shapes=([None, None], [], [None], []),
+            # TODO: ignore id not 0 for text padding id
+            padding_values=(0.0, None, tf.cast(0, dtype=tf.int32), None),
+        )
+        # group by window
+        if input_context is not None:
+            window_size = input_context.num_replicas_in_sync
+            dataset = dataset.group_by_window(
+                key_func=lambda inputs: tf.cast(  # pylint: disable=g-long-lambda
+                    tf.shape(inputs[0])[1], tf.int64),
+                reduce_func=lambda inputs:
+                (tf.data.Dataset.from_tensors(inputs[0]),
+                 tf.data.Dataset.from_tensors(inputs[1]),
+                 tf.data.Dataset.from_tensors(inputs[2]),
+                 tf.data.Dataset.from_tensors(inputs[3])),
+                window_size=window_size)
+            dataset = dataset.flat_map(lambda x: x)
+
+        # dataset = dataset.padded_batch(batch_size=batch_size,
+        #                                padded_shapes=([None,
+        #                                                None], [], [None], []),
+        #                                padding_values=(0.0, None,
+        #                                                tf.cast(0,
+        #                                                        dtype=tf.int32),
+        #                                                None),
+        #                                drop_remainder=True)
 
         # batch spec aug
         spec_aug = conf.get('spec_aug', True)

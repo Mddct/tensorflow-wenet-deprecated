@@ -15,12 +15,12 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
     """
 
     def __init__(
-        self,
-        n_head: int,
-        n_feat: int,
-        dropout_rate: float,
-        bias_regularizer="l2",
-        kernel_regularizer="l2",
+            self,
+            n_head: int,
+            n_feat: int,
+            dropout_rate: float,
+            bias_regularizer=tf.keras.regularizers.L2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.L2(1e-6),
     ):
         """Construct an MultiHeadedAttention object."""
         super().__init__()
@@ -216,8 +216,8 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
             n_head,
             n_feat,
             dropout_rate,
-            bias_regularizer=tf.keras.regularizers.l2(1e-6),
-            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
+            bias_regularizer=tf.keras.regularizers.L2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.L2(1e-6),
     ):
         """Construct an RelPositionMultiHeadedAttention object."""
         super().__init__(n_head, n_feat, dropout_rate)

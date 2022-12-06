@@ -18,8 +18,8 @@ class ConvolutionModule(tf.keras.layers.Layer):
         dropout_rate: float = 0.1,
         causal: bool = False,
         bias: bool = True,
-        bias_regularizer="l2",
-        kernel_regularizer="l2",
+        bias_regularizer=tf.keras.regularizers.L2(1e-6),
+        kernel_regularizer=tf.keras.regularizers.L2(1 - 6),
         name="conv_module",
         **kwargs,
     ):

@@ -49,8 +49,8 @@ class TransformerDecoder(tf.keras.layers.Layer):
             output_layer_share_weights: bool = False,
             normalize_before: bool = True,
             concat_after: bool = False,
-            kernel_regularizer=tf.keras.regularizers.l2(1e-6),
-            bias_regularizer=tf.keras.regularizers.l2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.L2(1e-6),
+            bias_regularizer=tf.keras.regularizers.L2(1e-6),
     ):
         assert check_argument_types()
         super().__init__()

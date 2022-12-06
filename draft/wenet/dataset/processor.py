@@ -59,12 +59,14 @@ def spec_trim(feats, max_t=20):
                    lambda: feats[:(max_frames - length), :], lambda: feats)
 
 
+@tf.function
 def spec_aug(feats, feats_length, augmenter=None):
     if augmenter is None:
         return feats
     return augmenter(feats, feats_length)
 
 
+@tf.function
 def filter(waveform,
            sr,
            labels,
@@ -97,36 +99,3 @@ def filter(waveform,
         return True
     else:
         return False
-
-
-# sample_rate = tf.constant(16000, dtype=tf.int32)
-# wavs = ["1.wav\t你 好", "test.wav\t你 们", "test.wav\t你", "test.wav\t你 好"]
-# dataset = tf.data.Dataset.from_tensor_slices(wavs)
-
-# # # dataset.filter .... resampel ... rir..... ....speed....
-# # == torchaudio.load
-# dataset = dataset.map(parse_line, num_parallel_calls=tf.data.AUTOTUNE)
-# # TODO: resample
-# # == torchaudio effects speed
-# dataset = dataset.map(
-#     lambda waveform, sr, labels:
-#     (speed(waveform, sr, tf.constant([0.9, 1., 1.1])), sr, labels),
-#     tf.data.AUTOTUNE)
-# #
-# # filter ...
-# #
-
-# # spec aug...
-# # == torchadio fbank
-# dataset = dataset.map(lambda waveform, sr, labels: (feature(waveform), labels))
-
-# # batch
-# dataset = dataset.padded_batch(batch_size=4,
-#                                padded_shapes=([None, bins], [None]),
-#                                padding_values=(0.0, tf.cast(0,
-#                                                             dtype=tf.int64)),
-#                                drop_remainder=True)
-# dataset = dataset.prefetch(tf.data.AUTOTUNE)
-
-# for feats, labels in dataset:
-#     print(feats.shape, labels.shape, labels)

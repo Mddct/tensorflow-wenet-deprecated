@@ -48,15 +48,15 @@ class LinearNoSubsampling(BaseSubsampling):
     """
 
     def __init__(
-        self,
-        idim: int,
-        odim: int,
-        dropout_rate: float,
-        pos_enc_class: Union[PositionalEncoding, RelPositionalEncoding,
-                             NoPositionalEncoding],
-        bias_regularizer="l2",
-        kernel_regularizer="l2",
-        **kwargs,
+            self,
+            idim: int,
+            odim: int,
+            dropout_rate: float,
+            pos_enc_class: Union[PositionalEncoding, RelPositionalEncoding,
+                                 NoPositionalEncoding],
+            bias_regularizer=tf.keras.regularizers.L2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.L2(1e-6),
+            **kwargs,
     ):
         """Construct an linear object."""
         super(LinearNoSubsampling, self).__init__(dropout_rate=dropout_rate,
@@ -116,15 +116,15 @@ class Conv2dSubsampling4(BaseSubsampling):
     """
 
     def __init__(
-        self,
-        idim: int,
-        odim: int,
-        dropout_rate: float,
-        pos_enc_class: Union[PositionalEncoding, RelPositionalEncoding,
-                             NoPositionalEncoding],
-        bias_regularizer="l2",
-        kernel_regularizer="l2",
-        **kwargs,
+            self,
+            idim: int,
+            odim: int,
+            dropout_rate: float,
+            pos_enc_class: Union[PositionalEncoding, RelPositionalEncoding,
+                                 NoPositionalEncoding],
+            bias_regularizer=tf.keras.regularizers.L2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.L2(1e-6),
+            **kwargs,
     ):
         """Construct an Conv2dSubsampling4 object."""
         super(Conv2dSubsampling4, self).__init__(dropout_rate=dropout_rate,
@@ -212,15 +212,15 @@ class Conv2dSubsampling6(BaseSubsampling):
     """
 
     def __init__(
-        self,
-        idim: int,
-        odim: int,
-        dropout_rate: float,
-        pos_enc_class: Union[PositionalEncoding, RelPositionalEncoding,
-                             NoPositionalEncoding],
-        bias_regularizer="l2",
-        kernel_regularizer="l2",
-        **kwargs,
+            self,
+            idim: int,
+            odim: int,
+            dropout_rate: float,
+            pos_enc_class: Union[PositionalEncoding, RelPositionalEncoding,
+                                 NoPositionalEncoding],
+            bias_regularizer=tf.keras.regularizers.L2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.L2(1e-6),
+            **kwargs,
     ):
         """Construct an Conv2dSubsampling6 object."""
         super(Conv2dSubsampling6, self).__init__(**kwargs)
@@ -305,14 +305,14 @@ class Conv2dSubsampling8(BaseSubsampling):
     """
 
     def __init__(
-        self,
-        idim: int,
-        odim: int,
-        dropout_rate: float,
-        pos_enc_class: tf.keras.layers.Layer,
-        bias_regularizer="l2",
-        kernel_regularizer="l2",
-        **kwargs,
+            self,
+            idim: int,
+            odim: int,
+            dropout_rate: float,
+            pos_enc_class: tf.keras.layers.Layer,
+            bias_regularizer=tf.keras.regularizers.L2(1e-6),
+            kernel_regularizer=tf.keras.regularizers.L2(1e-6),
+            **kwargs,
     ):
         """Construct an Conv2dSubsampling8 object."""
         super(Conv2dSubsampling8, self).__init__(**kwargs)
