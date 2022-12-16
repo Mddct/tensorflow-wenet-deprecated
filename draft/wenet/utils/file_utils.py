@@ -1,4 +1,4 @@
-draft/wenet/transformer/attention.py import os
+import os
 from typing import List, Tuple
 
 import tensorflow as tf

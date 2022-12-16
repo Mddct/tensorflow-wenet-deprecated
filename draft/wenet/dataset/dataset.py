@@ -22,63 +22,69 @@ def look_up_table(symbol_table_path, unk="<unk>"):
 def Dataset(
     conf,
     symbol_table_path,
-    data_list_file,
+    file_pattern,
     global_batch_size=1,
-    prefetch=tf.data.AUTOTUNE,
-    data_type="shard",
     strategy=None,
+    prefetch=1000,
     training: bool = True,
     cache: bool = False,
+    max_io_parallelism: int = 256,
     tf_data_service: Optional[str] = None,
 ):
 
     symbol_table, vocab_size = look_up_table(symbol_table_path)
 
-    def dataset_fn(input_context=None):
-        dataset = tf.data.TextLineDataset(data_list_file)
-        if data_type == 'shard':
-            # eacho shard: dataset element ["shard1.txt", 'shard2.txt'....]
-            # asynchronously parallel read multiple shard
-            dataset = dataset.interleave(
-                lambda elem: tf.data.TextLineDataset(elem),
-                cycle_length=prefetch,
-                num_parallel_calls=prefetch,
-            )
-            dataset = dataset.apply(tf.data.experimental.ignore_errors())
+    def _load_data_list(filename):
+        return tf.data.TextLineDataset(filename)
 
+    def dataset_fn(input_context=None):
+        if training:
+            dataset = tf.data.Dataset.list_files(file_pattern, shuffle=True)
+        else:
+            dataset = tf.data.Dataset.list_files(file_pattern, shuffle=False)
+            # shard across multi workers
         if strategy is not None and input_context is not None:
             dataset = dataset.shard(input_context.num_input_pipelines,
                                     input_context.input_pipeline_id)
+
+        # Read files and interleave results. When training, the order of the examples
+        # will be non-deterministic.
+        options = tf.data.Options()
+        if training:
+            options.deterministic = False
+        else:
+            options.deterministic = True
+
+        dataset = dataset.interleave(
+            _load_data_list,
+            cycle_length=max_io_parallelism,
+            num_parallel_calls=tf.data.AUTOTUNE).with_options(options)
+
         shuffle = conf.get('shuffle', True)
         if shuffle:
             shuffle_conf = conf.get('shuffle_conf', {})
             dataset = dataset.shuffle(buffer_size=shuffle_conf['shuffle_size'],
                                       reshuffle_each_iteration=True)
-        if training and cache is not None:
+        if training:
+            # for training , repeat forwever, until reach max steps
             dataset = dataset.repeat()
-            shard = 1000
-            prefetch_wav = 100
-            dataset = dataset.window(shard)
-
+            # interleave wav read
             dataset = dataset.interleave(
-                lambda window: window.map(lambda line: processor.parse_line(
-                    line, symbol_table),
-                                          num_parallel_calls=tf.data.AUTOTUNE).
-                apply(tf.data.experimental.ignore_errors()),
-                num_parallel_calls=tf.data.AUTOTUNE,
-                block_length=prefetch_wav,
+                lambda elem: tf.data.Dataset.from_tensors(elem).map(
+                    lambda line: processor.parse_line(line, symbol_table),
+                    num_parallel_calls=1).ignore_errors(),
+                cycle_length=prefetch,
+                num_parallel_calls=max_io_parallelism,
             )
 
         if cache:
             # for small dataset we can cache all raw wav in memory
             dataset = dataset.cache()
 
-        # dataset = dataset.map(
-        #     lambda line: processor.parse_line(line, symbol_table),
-        #     num_parallel_calls=tf.data.AUTOTUNE)
-        # file may not found in  parse_line, ignore error
-        # dataset = dataset.apply(tf.data.experimental.ignore_errors())
-
+        # 1 one sample, like: resample speed 、spec sub、 spec trim、filter ...
+        # 2 fbank
+        # 3 group by window
+        # 5 batch sample, like: spec aug
         speed_perturb = conf.get('speed_perturb', False)
         if speed_perturb:
             dataset = dataset.map(
@@ -113,34 +119,20 @@ def Dataset(
         if strategy is not None:
             batch_size = input_context.get_per_replica_batch_size(
                 global_batch_size)
-        # bucket
-        # TODO: from config
-        bucket_boundaries = [500, 10 * 100, 15 * 100,
-                             20 * 100]  # [0-5s) [5s, 10s) [10s,15) ...
+            # bucket
+            # TODO: from config
+            # [0-1s)... [5s, 10s) [10s,15) ...
+        bucket_boundaries = [5 * 100, 10 * 100, 15 * 100, 20 * 100]
         bucket_batch_sizes = [batch_size] * (len(bucket_boundaries) + 1)
+        # TODO: replace with gorup by window, each batch has similar total tokens
         dataset = dataset.bucket_by_sequence_length(
-            lambda inputs: tf.cast(inputs[1], tf.int32),
-            bucket_boundaries,
-            bucket_batch_sizes,
-            pad_to_bucket_boundary=False,
-            drop_remainder=True,
+            lambda feats, feats_lens, labels, labels_lens: feats_lens,
+            bucket_boundaries=bucket_boundaries,
+            bucket_batch_sizes=bucket_batch_sizes,
             padded_shapes=([None, None], [], [None], []),
-            # TODO: ignore id not 0 for text padding id
             padding_values=(0.0, None, tf.cast(0, dtype=tf.int32), None),
-        )
-        # group by window
-        if input_context is not None:
-            window_size = input_context.num_replicas_in_sync
-            dataset = dataset.group_by_window(
-                key_func=lambda inputs: tf.cast(  # pylint: disable=g-long-lambda
-                    tf.shape(inputs[0])[1], tf.int64),
-                reduce_func=lambda inputs:
-                (tf.data.Dataset.from_tensors(inputs[0]),
-                 tf.data.Dataset.from_tensors(inputs[1]),
-                 tf.data.Dataset.from_tensors(inputs[2]),
-                 tf.data.Dataset.from_tensors(inputs[3])),
-                window_size=window_size)
-            dataset = dataset.flat_map(lambda x: x)
+            drop_remainder=True)
+        dataset = dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
         # dataset = dataset.padded_batch(batch_size=batch_size,
         #                                padded_shapes=([None,
@@ -164,7 +156,7 @@ def Dataset(
                 lambda feats, feats_length, labels, labels_length:
                 (processor.spec_aug(feats, feats_length, augmenter),
                  feats_length, labels, labels_length), tf.data.AUTOTUNE)
-        dataset = dataset.prefetch(tf.data.AUTOTUNE)
+            dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
         if tf_data_service is not None:
             if not hasattr(tf.data.experimental, 'service'):

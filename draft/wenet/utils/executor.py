@@ -21,7 +21,6 @@ class AsrTrainer(orbit.StandardTrainer):
         with self.strategy.scope():
             self.optimizer = optimizer
             self.model = model
-            self.global_step = self.optimizer.iterations
 
         self.global_batch_size = global_batch_size
 
@@ -44,12 +43,11 @@ class AsrTrainer(orbit.StandardTrainer):
     def train_step(self, iterator):
 
         def step_fn(inputs):
-
+            _, _, labels, labels_length = inputs
             with tf.GradientTape() as tape:
                 # feats, feats_length, labels, labels_length = inputs
                 # labels = tf.cast(labels, dtype=tf.int32)
                 # labels_length = tf.cast(labels_length, dtype=tf.int32)
-                _, _, labels, labels_length = inputs
                 encoder_out, encoder_out_lens, decoder_out, ys_out_pad, r_decoder_out, r_ys_out_pad = self.model(
                     inputs)
                 loss_dict = self.model.compute_loss(

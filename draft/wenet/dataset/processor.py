@@ -59,14 +59,10 @@ def spec_trim(feats, max_t=20):
                    lambda: feats[:(max_frames - length), :], lambda: feats)
 
 
-@tf.function
-def spec_aug(feats, feats_length, augmenter=None):
-    if augmenter is None:
-        return feats
+def spec_aug(feats, feats_length, augmenter):
     return augmenter(feats, feats_length)
 
 
-@tf.function
 def filter(waveform,
            sr,
            labels,
@@ -79,23 +75,20 @@ def filter(waveform,
     num_frames = tf.shape(waveform)[0] / sr * 100
     toks_length = tf.shape(labels)[0]
 
-    if num_frames < min_length:
-        return False
-    if num_frames > max_length:
-        return False
-    if toks_length < token_min_length:
-        return False
-    if toks_length > token_max_length:
-        return False
-    if num_frames != 0:
-        frames_per_tok = tf.cast(toks_length, dtype=tf.float32) / tf.cast(
-            num_frames, dtype=tf.float32)
-        # frames_per_tok = tf.cast(toks_length, dtype=tf.float32) / tf.cast(
-        # num_frames, dtype=tf.float32)
-        if frames_per_tok < min_output_input_ratio:
-            return False
-        if frames_per_tok > max_output_input_ratio:
-            return False
-        return True
-    else:
-        return False
+    frames_cond = tf.logical_and(
+        num_frames <= max_length,
+        num_frames >= min_length,
+    )
+    tokens_cond = tf.logical_and(
+        toks_length <= token_max_length,
+        toks_length >= token_min_length,
+    )
+
+    frames_per_tok = tf.cast(toks_length, dtype=tf.float32) / tf.cast(
+        num_frames, dtype=tf.float32)
+    frames_per_tok_cond = tf.logical_and(
+        frames_per_tok >= min_output_input_ratio,
+        frames_per_tok <= max_output_input_ratio,
+    )
+    return tf.logical_and(tf.logical_and(frames_cond, tokens_cond),
+                          frames_per_tok_cond)

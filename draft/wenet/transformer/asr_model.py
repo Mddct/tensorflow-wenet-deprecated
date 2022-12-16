@@ -1,4 +1,5 @@
 from typing import Optional
+from keras.backend import update
 import tensorflow as tf
 from wenet.transformer.ctc import CTCDense
 from wenet.transformer.decoder import TransformerDecoder
@@ -78,10 +79,27 @@ class ASRModel(tf.keras.Model):
         if self.ctc_weight != 1.0:
             decoder_out, ys_out_pad, r_decoder_out, r_ys_out_pad = self.forward_decoder(
                 encoder_out, encoder_mask, text, text_lengths)
-            encoder_out = self.ctc_dense(encoder_out, training=True)
         else:
             decoder_out, ys_out_pad, r_decoder_out, r_ys_out_pad = None, None, None, None
 
+        if self.ctc_weight != 0.0:
+            # NOTE: we will use sparse tensor cuda ctc
+            # but cuda ctc doesn't zero out gradients when exceeds the seq_lens
+            # which makes training wrong, so turn value to zero
+            # https://github.com/tensorflow/tensorflow/issues/41280
+            encoder_out = self.ctc_dense(encoder_out, training=True)
+            encoder_out_before = encoder_out
+
+            @tf.custom_gradient
+            def ctc_zero_out(input):
+
+                def grad(upstream):
+                    return upstream * tf.transpose(encoder_mask, [0, 2, 1])
+
+                return tf.identity(input), grad
+
+            encoder_out = ctc_zero_out(encoder_out_before)
+            # encoder_out = encoder_out * tf.transpose(encoder_mask, [0, 2, 1])
         return (
             encoder_out,
             encoder_out_lens,
@@ -116,6 +134,7 @@ class ASRModel(tf.keras.Model):
 
         return decoder_out, ys_out_pad, r_decoder_out, r_ys_out_pad
 
+    @tf.function
     def compute_loss(
         self,
         encoder_logits,
@@ -129,7 +148,7 @@ class ASRModel(tf.keras.Model):
     ):
         loss_ctc = None
         # TODO: move label convert to data pipeline
-        # NOTE: sparse label, tf will chose cuda ctc which faster than dense even on gpu
+        # NOTE: sparse label, tf will choose cuda ctc which faster than dense even on gpu
         if self.ctc_weight != 0.0:
             labels_sparse = tf.sparse.from_dense(encoder_labels)
             loss_ctc = tf.nn.ctc_loss(
@@ -138,6 +157,7 @@ class ASRModel(tf.keras.Model):
                 None,
                 encoder_logits_lens,
                 logits_time_major=False,
+                blank_index=0,
             )
         loss_att = None
         if self.ctc_weight != 1.0:

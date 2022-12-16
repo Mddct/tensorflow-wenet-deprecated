@@ -17,10 +17,6 @@ from wenet.utils.distribute_utils import get_distribution_strategy
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string('config', default=None, required=True, help='config file')
-flags.DEFINE_enum('data_type',
-                  default='raw',
-                  enum_values=['raw', 'shard'],
-                  help='train and cv data type')
 flags.DEFINE_string('train_data',
                     default=None,
                     required=True,
@@ -107,9 +103,8 @@ def main(argv):
         FLAGS.symbol_table,
         FLAGS.train_data,
         global_batch_size,
-        FLAGS.prefetch,
-        FLAGS.data_type,
         strategy,
+        FLAGS.prefetch,
     )
     if 'fbank_conf' in configs['dataset_conf']:
         input_dim = configs['dataset_conf']['fbank_conf']['num_mel_bins']

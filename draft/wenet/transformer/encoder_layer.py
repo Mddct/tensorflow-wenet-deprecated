@@ -298,7 +298,6 @@ class ConformerEncoderLayer(tf.keras.layers.Layer):
             x = self.norm_mha(x)
 
         # convolution module
-        # Fake new cnn cache here, and then change it in conv_module
         residual = x
         if self.pre_norm:
             x = self.norm_conv(x)

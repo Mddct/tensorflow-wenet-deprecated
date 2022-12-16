@@ -2,7 +2,7 @@
 from typing import List, Optional, Tuple
 
 import tensorflow as tf
-from draft.wenet.utils.common import get_encoder_attention_bias
+from wenet.utils.common import get_encoder_attention_bias
 from typeguard import check_argument_types
 from wenet.transformer.attention import MultiHeadedAttention
 from wenet.transformer.decoder_layer import DecoderLayer

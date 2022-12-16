@@ -162,7 +162,8 @@ class BaseEncoder(tf.keras.layers.Layer):
             xs, masks, self.use_dynamic_chunk, self.use_dynamic_left_chunk,
             decoding_chunk_size, self.static_chunk_size,
             num_decoding_left_chunks)
-        chunk_attention_bias = get_encoder_attention_bias(chunk_attention_bias)
+        chunk_attention_bias = get_encoder_attention_bias(
+            chunk_attention_bias)  # [B, 1, *, T]
 
         for layer in self.encoders:
             xs = layer(xs,

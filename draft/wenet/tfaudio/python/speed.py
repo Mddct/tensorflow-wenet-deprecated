@@ -1,4 +1,5 @@
 import tensorflow as tf
+import tensorflow_io as tfio
 from wenet.tfaudio.cc.ops import gen_x_op
 from wenet.tfaudio.python.resample import eager_resample
 
