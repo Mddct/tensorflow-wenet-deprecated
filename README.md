@@ -1,5 +1,5 @@
-# tensorflow-wenet
-this is respo to reproduce wenet in tf
+# tensorflow-wenet(deprecated)
+this is respo to reproduce wenet in tf, will reimplemenet by jax
 
 * this is a repo to reproduce wenet in tf
 * step by step (on going)
